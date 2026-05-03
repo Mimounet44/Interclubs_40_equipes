@@ -1439,21 +1439,13 @@
         .btn-warning:hover { filter:brightness(1.1); }
         .btn-danger { background:rgba(224,80,80,0.15); color:var(--danger); border:1px solid rgba(224,80,80,0.3); }
         .btn-danger:hover { background:rgba(224,80,80,0.25); }
-        .readonly-mode input:not(.login-btn):not(.btn-logout):not(#adminLoginBtn):not(#loginEmail):not(#loginPassword),
-.readonly-mode button:not(.login-btn):not(.btn-logout):not(.tab):not(#adminLoginBtn):not([onclick="loginWithEmail()"]):not([onclick="loginWithGoogle()"]),
-.readonly-mode div#loginPanel input,
-.readonly-mode div#loginPanel button {
-    opacity: 0.6;
-    pointer-events: none;
-}
-
-/* Force les éléments du panneau de connexion à rester actifs */
-#loginPanel input,
-#loginPanel button,
-#adminLoginBtn {
-    pointer-events: auto !important;
-    opacity: 1 !important;
-}
+        .readonly-mode input:not(#loginEmail):not(#loginPassword):not(.btn-logout),
+        .readonly-mode button:not(#adminLoginBtn):not(.btn-logout):not(.tab):not(.float-btn):not(#loginPanel button) {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+        /* Le panel de login reste toujours interactif */
+        #loginPanel, #loginPanel * { pointer-events: auto !important; opacity: 1 !important; }
         /* Saisie : peut entrer scores mais pas configurer */
         .saisie-mode .btn-primary,
         .saisie-mode .btn-warning,
