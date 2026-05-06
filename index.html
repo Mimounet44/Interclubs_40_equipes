@@ -64,6 +64,8 @@
         function timeToMin(t){ let [h,m]=t.split(':').map(Number); return h*60+m; }
         function minToTime(m){ let h=Math.floor(m/60)%24, mn=m%60; return String(h).padStart(2,'0')+':'+String(mn).padStart(2,'0'); }
         function shuffleArray(arr){ for(let i=arr.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];} return arr; }
+        // Normalise un nom de club en retirant les chiffres et espaces superflus pour la comparaison
+        function clubBaseName(club){ return (club||'').replace(/\d+/g,'').replace(/\s+/g,' ').trim().toLowerCase(); }
 
         // Obtenir la salle d'un terrain donné
         function getSalleForTerrain(terrainNum) {
@@ -216,7 +218,7 @@
             for(let team of shuffled){
                 let placed=false;
                 for(let g=0;g<nbGroups;g++){
-                    if(groupsTemp[g].length<teamsPerGroup&&!groupsTemp[g].some(t=>t.club===team.club)){ groupsTemp[g].push(team); placed=true; break; }
+                    if(groupsTemp[g].length<teamsPerGroup&&!groupsTemp[g].some(t=>clubBaseName(t.club)===clubBaseName(team.club))){ groupsTemp[g].push(team); placed=true; break; }
                 }
                 if(!placed) for(let g=0;g<nbGroups;g++) if(groupsTemp[g].length<teamsPerGroup){ groupsTemp[g].push(team); break; }
             }
@@ -342,11 +344,11 @@
         function renderPhase1UI(){
             const area=document.getElementById('phase1Area'); if(!area) return;
             if(!groupsP1.length){ area.innerHTML='<div class="panel"><div class="panel-body" style="color:var(--text-muted);">Aucun tirage P1.</div></div>'; return; }
-            // Boutons saisie par terrain/groupe
-            let saisieBtns=`<div class="panel"><div class="panel-header">✏️ Saisie rapide des résultats</div><div class="panel-body" style="display:flex;gap:8px;flex-wrap:wrap;">
+            // Boutons saisie par terrain/groupe (admin only)
+            let saisieBtns= isAdmin ? `<div class="panel"><div class="panel-header">✏️ Saisie rapide des résultats</div><div class="panel-body" style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn btn-default" onclick="openScoreModalByGroupe('P1')">📋 Par groupe</button>
                 <button class="btn btn-default" onclick="openScoreModalByTerrain('P1')">🎾 Par terrain</button>
-            </div></div>`;
+            </div></div>` : '';
             let groupsHtml='<div class="groups-grid" style="margin-bottom:16px;">';
             groupsP1.forEach(grp=>{
                 let rank=computeRankP1(grp.name);
@@ -424,7 +426,7 @@
             if(!isAdmin&&!isSaisie) return;
             let inp=e.target, mid=parseInt(inp.dataset.id), m=matchesP2.find(x=>x.id===mid);
             if(m){ if(inp.dataset.side==='1') m.score1=inp.value; else m.score2=inp.value;
-                renderPhase2UI(); updateGlobalRanking(); renderSchedule(); updateCounters(); saveData(); updateTopRecap(); }
+                renderPhase2UI(); renderRankingP2(); updateGlobalRanking(); renderSchedule(); updateCounters(); saveData(); updateTopRecap(); }
         }
 
         function finalesHandler(e){
@@ -683,18 +685,47 @@
             else return s1-s2;
         }
 
+        function renderRankingP2(){
+            const area=document.getElementById('rankingP2Area'); if(!area) return;
+            if(!matchesP2.length){ area.innerHTML='<div class="panel"><div class="panel-body" style="color:var(--text-muted);">Générez la Phase 2 d\'abord.</div></div>'; return; }
+            const catOrder=['elite','or','argent','bronze','consol'];
+            const catLabels={elite:'🏅 ÉLITE',or:'🥇 OR',argent:'🥈 ARGENT',bronze:'🥉 BRONZE',consol:'🎗️ CONSOLATION'};
+            const catColors={elite:'var(--elite)',or:'var(--gold)',argent:'var(--silver)',bronze:'var(--bronze)',consol:'var(--consol)'};
+            let groupsMap=new Map();
+            matchesP2.forEach(m=>{ if(!groupsMap.has(m.groupName)) groupsMap.set(m.groupName,{category:m.category,matches:[]}); groupsMap.get(m.groupName).matches.push(m); });
+            let html='';
+            catOrder.forEach(cat=>{
+                let catGroups=[...groupsMap.entries()].filter(([n,g])=>g.category===cat);
+                if(!catGroups.length) return;
+                let color=catColors[cat];
+                html+=`<div style="margin:8px 0 4px;font-weight:800;font-size:0.82rem;color:${color};">${catLabels[cat]}</div>`;
+                html+=`<div class="groups-grid" style="margin-bottom:12px;">`;
+                catGroups.forEach(([gName])=>{
+                    let rank=computePhase2Rank(gName);
+                    html+=`<div class="group-card"><div class="group-title" style="color:${color};">📊 ${gName}</div>
+                    <table class="ranking-table" style="margin:0;"><thead><tr><th>#</th><th>Club</th><th>Pts</th><th>V/N/D</th><th>BP:BC</th><th>Diff</th></tr></thead><tbody>`;
+                    rank.forEach((r,idx)=>{
+                        let medals=['🥇','🥈','🥉','4️⃣','5️⃣'];
+                        html+=`<tr class="rank-${idx+1}"><td class="rank-num">${medals[idx]||idx+1}</td><td><b>${esc(r.team?.club||'?')}</b><br><span style="font-size:0.6rem;color:var(--text-muted)">${esc(r.team?.player1||'')}·${esc(r.team?.player2||'')}</span></td><td><b>${r.pts}</b></td><td style="color:var(--text-muted)">${r.w}/${r.d}/${r.l}</td><td style="color:var(--text-muted)">${r.bp}:${r.bc}</td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${r.diff>0?'+':''}${r.diff}</td></tr>`;
+                    });
+                    html+=`</tbody></table></div>`;
+                });
+                html+=`</div>`;
+            });
+            area.innerHTML=`<div class="panel"><div class="panel-header">📊 Classement Phase 2 par groupe</div><div class="panel-body">${html}</div></div>`;
+        }
+
         function renderPhase2UI(){
             const area=document.getElementById('phase2Area'); if(!area) return;
             if(!matchesP2.length){ area.innerHTML='<div class="panel"><div class="panel-body" style="color:var(--text-muted);">Phase 2 non générée.</div></div>'; return; }
 
-            let saisieBtns=`<div class="panel"><div class="panel-header">✏️ Saisie rapide des résultats P2</div><div class="panel-body" style="display:flex;gap:8px;flex-wrap:wrap;">
+            let saisieBtns = isAdmin ? `<div class="panel"><div class="panel-header">✏️ Saisie rapide des résultats P2</div><div class="panel-body" style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button class="btn btn-default" onclick="openScoreModalByGroupe('P2')">📋 Par groupe</button>
                 <button class="btn btn-default" onclick="openScoreModalByTerrain('P2')">🎾 Par terrain</button>
-            </div></div>`;
+            </div></div>` : '';
 
-            // Panel modification composition groupes E
             let editGroupsHtml='';
-            if(currentFormat==='E'&&groupsP2E.length>0){
+            if(currentFormat==='E'&&groupsP2E.length>0&&isAdmin){
                 editGroupsHtml=renderFormatEGroupEditor();
             }
 
@@ -866,10 +897,10 @@
             let byPair=new Map();
             matchesFinales.forEach(m=>{ if(!byPair.has(m.category)) byPair.set(m.category,[]); byPair.get(m.category).push(m); });
 
-            let html=`<div class="panel"><div class="panel-header">🏆 Matchs de classement finaux (1er→40e)</div><div class="panel-body" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            let html= isAdmin ? `<div class="panel"><div class="panel-header">🏆 Matchs de classement finaux (1er→40e)</div><div class="panel-body" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
                 <button class="btn btn-default" onclick="openScoreModalByGroupe('FIN')">📋 Par catégorie</button>
                 <button class="btn btn-default" onclick="openScoreModalByTerrain('FIN')">🎾 Par terrain</button>
-            </div></div>`;
+            </div></div>` : `<div class="panel"><div class="panel-header">🏆 Matchs de classement finaux (1er→40e)</div></div>`;
 
             const catOrder=['elite','or','argent','bronze','consol'];
             catOrder.forEach(cat=>{
@@ -949,45 +980,69 @@
             const area=document.getElementById('rankingArea'); if(!area) return;
             let finalRanking=computeFinalRanking();
             let ptRanking=computeTotalPoints();
+            const catOrder=['elite','or','argent','bronze','consol'];
+            const catLabels={elite:'🏅 ÉLITE',or:'🥇 OR',argent:'🥈 ARGENT',bronze:'🥉 BRONZE',consol:'🎗️ CONSOLATION'};
+            const catColors={elite:'var(--elite)',or:'var(--gold)',argent:'var(--silver)',bronze:'var(--bronze)',consol:'var(--consol)'};
 
             let html='';
+
+            // === Classement final après matchs de classement ===
             if(finalRanking.length>0){
-                // Classement final basé sur matchs de classement
+                // Construire map teamId → catégorie depuis matchesP2
+                let teamCatMap=new Map();
+                matchesP2.forEach(m=>{ if(m.team1?.id) teamCatMap.set(m.team1.id,m.category); if(m.team2?.id) teamCatMap.set(m.team2.id,m.category); });
+                // Regrouper par catégorie
+                let byCat=new Map();
+                finalRanking.forEach(r=>{ let cat=teamCatMap.get(r.team?.id)||''; if(!byCat.has(cat)) byCat.set(cat,[]); byCat.get(cat).push(r); });
+
                 html+=`<div class="panel"><div class="panel-header">🏆 Classement Final (après matchs de classement)</div><div class="panel-body">`;
-                html+=`<table class="ranking-table"><thead><tr><th>Rang</th><th>Club</th><th>Joueurs</th><th>Statut</th></tr></thead><tbody>`;
-                finalRanking.forEach((r,idx)=>{
-                    let medals=['🥇','🥈','🥉'];
-                    html+=`<tr class="${r.pending?'':'rank-'+(r.finalRank)}"><td class="rank-num" style="${r.pending?'color:var(--text-muted)':''}">${medals[r.finalRank-1]||r.finalRank+'e'}</td><td><b>${esc(r.team?.club||'?')}</b></td><td style="font-size:0.62rem;color:var(--text-muted)">${esc(r.team?.player1||'')}<br>${esc(r.team?.player2||'')}</td><td style="font-size:0.65rem;color:${r.pending?'var(--warning)':'var(--accent)'}">${r.pending?'⏳ En attente':'✅ Classé'}</td></tr>`;
+                let anyDisplayed=false;
+                catOrder.forEach(cat=>{
+                    let rows=byCat.get(cat); if(!rows||!rows.length) return;
+                    let color=catColors[cat];
+                    if(anyDisplayed) html+=`<div style="height:2px;background:linear-gradient(90deg,${color}33,${color},${color}33);border-radius:2px;margin:14px 0;"></div>`;
+                    html+=`<div style="font-weight:800;font-size:0.78rem;color:${color};margin:8px 0 6px;padding:4px 10px;background:${color}14;border-radius:8px;border-left:3px solid ${color};">${catLabels[cat]}</div>`;
+                    html+=`<table class="ranking-table"><thead><tr><th>Rang</th><th>Club</th><th>Joueurs</th><th>Statut</th></tr></thead><tbody>`;
+                    rows.forEach(r=>{
+                        let medals=['🥇','🥈','🥉'];
+                        html+=`<tr class="${r.pending?'':'rank-'+(Math.min(r.finalRank,3))}"><td class="rank-num" style="${r.pending?'color:var(--text-muted)':r.finalRank<=3?'':'color:var(--text);'}">${medals[r.finalRank-1]||r.finalRank+'e'}</td><td><b>${esc(r.team?.club||'?')}</b></td><td style="font-size:0.62rem;color:var(--text-muted)">${esc(r.team?.player1||'')}<br>${esc(r.team?.player2||'')}</td><td style="font-size:0.65rem;color:${r.pending?'var(--warning)':'var(--accent)'}">${r.pending?'⏳':'✅'}</td></tr>`;
+                    });
+                    html+=`</tbody></table>`;
+                    anyDisplayed=true;
                 });
-                html+=`</tbody></table></div></div>`;
+                html+=`</div></div>`;
             }
 
-            // Classement par points cumulés
-            let eliteIds=new Set(), consolIds=new Set();
-            matchesP2.forEach(m=>{ let cat=m.category; if(m.team1?.id!==undefined){if(cat==='elite'||cat==='or'||cat==='argent'||cat==='bronze')eliteIds.add(m.team1.id);else consolIds.add(m.team1.id);} if(m.team2?.id!==undefined){if(cat==='elite'||cat==='or'||cat==='argent'||cat==='bronze')eliteIds.add(m.team2.id);else consolIds.add(m.team2.id);} });
-            const hasP2=eliteIds.size>0||consolIds.size>0;
+            // === Classement par points cumulés ===
+            let teamCatMap2=new Map();
+            matchesP2.forEach(m=>{ if(m.team1?.id) teamCatMap2.set(m.team1.id,m.category); if(m.team2?.id) teamCatMap2.set(m.team2.id,m.category); });
+            const hasP2=teamCatMap2.size>0;
 
             function buildRow(r,globalRank,localRank,medals){
                 let localSymbol=medals[localRank]||localRank+1;
                 let diff=r.diff>0?`+${r.diff}`:r.diff;
                 return `<tr class="rank-${localRank+1}"><td class="rank-num">${localSymbol}</td><td style="font-size:0.68rem;color:var(--text-muted);text-align:center;">${globalRank}</td><td><b>${esc(r.team.club)}</b></td><td style="font-size:0.62rem;color:var(--text-muted)">${esc(r.team.player1)}<br>${esc(r.team.player2)}</td><td><b>${r.pts}</b></td><td style="color:var(--text-muted)">${r.ptsP1||0}</td><td style="color:var(--text-muted)">${r.ptsP2||0}</td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${diff}</td><td>${r.bp}</td><td style="color:var(--text-muted)">${r.wins}/${r.draws}/${r.losses}</td></tr>`;
             }
-
             let thead=`<thead><tr><th>Rang local</th><th>Rang global</th><th>Club</th><th>Joueurs</th><th>Pts</th><th>P1</th><th>P2</th><th>Diff</th><th>BP</th><th>V/N/D</th></tr></thead>`;
 
             if(hasP2){
-                let eliteRanking=ptRanking.filter(r=>eliteIds.has(r.team.id));
-                let consolRanking=ptRanking.filter(r=>consolIds.has(r.team.id));
-                html+=`<div class="panel"><div class="panel-header">📊 Classement par Points (P1+P2)</div><div class="panel-body">`;
-                html+=`<div style="font-weight:700;font-size:0.8rem;margin:8px 0;color:var(--elite);">🏅 Tableau Élite / Or / Argent / Bronze</div>`;
-                html+=`<table class="ranking-table">${thead}<tbody>`;
-                eliteRanking.forEach((r,idx)=>{ html+=buildRow(r,idx+1,idx,['🥇','🥈','🥉']); });
-                html+=`</tbody></table>`;
-                html+=`<div style="margin:16px 0;border-top:2px dashed var(--border);"></div>`;
-                html+=`<div style="font-weight:700;font-size:0.8rem;margin:8px 0;color:var(--consol);">🎗️ Tableau Consolation</div>`;
-                html+=`<table class="ranking-table">${thead}<tbody>`;
-                consolRanking.forEach((r,idx)=>{ html+=buildRow(r,eliteRanking.length+idx+1,idx,['🥇','🥈','🥉']); });
-                html+=`</tbody></table></div></div>`;
+                // Grouper par catégorie selon matchesP2
+                html+=`<div class="panel"><div class="panel-header">📊 Classement par Points cumulés (P1+P2)</div><div class="panel-body">`;
+                let byCatPts=new Map();
+                ptRanking.forEach(r=>{ let cat=teamCatMap2.get(r.team.id)||'sans'; if(!byCatPts.has(cat)) byCatPts.set(cat,[]); byCatPts.get(cat).push(r); });
+                let globalOffset=0, first=true;
+                catOrder.forEach(cat=>{
+                    let rows=byCatPts.get(cat); if(!rows||!rows.length) return;
+                    let color=catColors[cat];
+                    if(!first) html+=`<div style="height:2px;background:linear-gradient(90deg,${color}33,${color},${color}33);border-radius:2px;margin:16px 0;"></div>`;
+                    html+=`<div style="font-weight:800;font-size:0.78rem;color:${color};margin:8px 0 6px;padding:4px 10px;background:${color}14;border-radius:8px;border-left:3px solid ${color};">${catLabels[cat]}</div>`;
+                    html+=`<table class="ranking-table">${thead}<tbody>`;
+                    rows.forEach((r,idx)=>{ html+=buildRow(r,globalOffset+idx+1,idx,['🥇','🥈','🥉']); });
+                    html+=`</tbody></table>`;
+                    globalOffset+=rows.length;
+                    first=false;
+                });
+                html+=`</div></div>`;
             } else {
                 html+=`<div class="panel"><div class="panel-header">📊 Classement par Points</div><div class="panel-body">`;
                 html+=`<table class="ranking-table">${thead}<tbody>`;
@@ -1028,7 +1083,11 @@
                 ms.forEach(m=>{
                     let played=isPlayed(m);
                     html+=`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px;margin-bottom:6px;background:${played?'rgba(46,125,50,0.06)':'var(--bg)'};border-radius:10px;border:1px solid var(--border);">
-                        <div style="flex:1;font-size:0.72rem;"><b>${esc(m.team1?.club||'?')}</b> <span style="color:var(--text-muted)">vs</span> <b>${esc(m.team2?.club||'?')}</b></div>
+                        <div style="flex:1;font-size:0.72rem;">
+                            <b>${esc(m.team1?.club||'?')}</b><span style="font-size:0.6rem;color:var(--text-muted);display:block;">${esc(m.team1?.player1||'')} / ${esc(m.team1?.player2||'')}</span>
+                            <span style="color:var(--text-muted);font-size:0.68rem;"> vs </span>
+                            <b>${esc(m.team2?.club||'?')}</b><span style="font-size:0.6rem;color:var(--text-muted);display:block;">${esc(m.team2?.player1||'')} / ${esc(m.team2?.player2||'')}</span>
+                        </div>
                         <div style="display:flex;align-items:center;gap:6px;">
                             <input type="number" min="0" class="score-input modal-score" data-id="${m.id}" data-phase="${phase}" data-side="1" value="${m.score1??''}" placeholder="0" style="width:52px;text-align:center;">
                             <span>–</span>
@@ -1069,7 +1128,12 @@
                     let played=isPlayed(m);
                     let grpLabel=m.group||m.groupName||m.groupPair||'';
                     html+=`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px;margin-bottom:6px;background:${played?'rgba(46,125,50,0.06)':'var(--bg)'};border-radius:10px;border:1px solid var(--border);">
-                        <div style="flex:1;font-size:0.72rem;"><span style="color:var(--text-muted);font-size:0.62rem;">${grpLabel} |</span> <b>${esc(m.team1?.club||'?')}</b> <span style="color:var(--text-muted)">vs</span> <b>${esc(m.team2?.club||'?')}</b></div>
+                        <div style="flex:1;font-size:0.72rem;">
+                            <span style="color:var(--text-muted);font-size:0.6rem;">${grpLabel}</span>
+                            <div><b>${esc(m.team1?.club||'?')}</b> <span style="font-size:0.6rem;color:var(--text-muted)">${esc(m.team1?.player1||'')} / ${esc(m.team1?.player2||'')}</span></div>
+                            <span style="color:var(--text-muted);font-size:0.68rem;"> vs </span>
+                            <div><b>${esc(m.team2?.club||'?')}</b> <span style="font-size:0.6rem;color:var(--text-muted)">${esc(m.team2?.player1||'')} / ${esc(m.team2?.player2||'')}</span></div>
+                        </div>
                         <div style="display:flex;align-items:center;gap:6px;">
                             <input type="number" min="0" class="score-input modal-score" data-id="${m.id}" data-phase="${phase}" data-side="1" value="${m.score1??''}" placeholder="0" style="width:52px;text-align:center;">
                             <span>–</span>
@@ -1091,7 +1155,7 @@
             if(!m) return;
             if(side==='1') m.score1=inp.value; else m.score2=inp.value;
             if(phase==='P1'){ renderPhase1UI(); renderRankingP1(); }
-            else if(phase==='P2'){ renderPhase2UI(); }
+            else if(phase==='P2'){ renderPhase2UI(); renderRankingP2(); }
             else renderFinalesUI();
             updateGlobalRanking(); renderSchedule(); updateCounters(); saveData(); updateTopRecap();
         }
@@ -1338,7 +1402,7 @@
             if(nbSallesSelect) nbSallesSelect.value=nbSalles;
             applyTimeSettings(); renderTeamsEditor(); renderGroupsPreview(); renderSallesConfig();
             if(matchesP1.length){ renderPhase1UI(); renderRankingP1(); }
-            if(matchesP2.length) renderPhase2UI();
+            if(matchesP2.length){ renderPhase2UI(); renderRankingP2(); }
             if(matchesFinales.length) renderFinalesUI();
             updateGlobalRanking(); updateCounters(); renderSchedule(); renderPlanning();
             updateTopRecap();
@@ -1364,8 +1428,12 @@
             const logoutBtn=document.getElementById('logoutBtn');
             const adminLoginBtn=document.getElementById('adminLoginBtn');
             const usersTabBtn=document.getElementById('usersTabBtn');
+            const configTabBtn=document.querySelector('.tab[data-tab="config"]');
+            const teamsTabBtn=document.querySelector('.tab[data-tab="teams"]');
+
             if(loginOverlay) loginOverlay.style.display='none';
             if(mainApp) mainApp.style.display='block';
+
             if(user){
                 currentUser=user;
                 const adminEmails=["yves.cerisier@orange.fr","quinquin44@gmail.com","checheux@gmail.com"];
@@ -1375,17 +1443,41 @@
                 if(logoutBtn) logoutBtn.style.display='inline-block';
                 if(adminLoginBtn) adminLoginBtn.style.display='none';
                 if(usersTabBtn) usersTabBtn.style.display=isAdmin?'inline-block':'none';
-                document.body.classList.remove('readonly-mode','saisie-mode');
-                if(isAdmin) showMsg("👑 Mode administrateur");
-                else { document.body.classList.add('saisie-mode'); showMsg("✏️ Mode saisie — "+(user.displayName||user.email)); }
+                // Config tab : visible seulement pour admin
+                if(configTabBtn) configTabBtn.style.display=isAdmin?'':'none';
+                // Teams tab : visible seulement pour admin
+                if(teamsTabBtn) teamsTabBtn.style.display=isAdmin?'':'none';
+                document.body.classList.remove('readonly-mode','saisie-mode','visitor-mode');
+                if(isAdmin){
+                    showMsg("👑 Mode administrateur");
+                } else {
+                    document.body.classList.add('saisie-mode');
+                    showMsg("✏️ Mode saisie — "+(user.displayName||user.email));
+                    // Si onglet actif est config ou teams, rediriger vers phase1
+                    const activeTab=document.querySelector('.tab.active');
+                    if(activeTab&&(activeTab.dataset.tab==='config'||activeTab.dataset.tab==='teams')){
+                        const p1Btn=document.querySelector('.tab[data-tab="phase1"]');
+                        if(p1Btn) p1Btn.click();
+                    }
+                }
                 startRealtimeSync();
             } else {
                 currentUser=null; isAdmin=false; isSaisie=false;
-                document.body.classList.add('readonly-mode'); document.body.classList.remove('saisie-mode');
+                document.body.classList.add('readonly-mode','visitor-mode');
+                document.body.classList.remove('saisie-mode');
                 if(logoutBtn) logoutBtn.style.display='none';
                 if(adminLoginBtn) adminLoginBtn.style.display='inline-block';
                 if(userEmailSpan) userEmailSpan.innerHTML='';
                 if(usersTabBtn) usersTabBtn.style.display='none';
+                // Config tab caché pour visiteurs
+                if(configTabBtn) configTabBtn.style.display='none';
+                if(teamsTabBtn) teamsTabBtn.style.display='none';
+                // Si onglet actif est config ou teams, rediriger
+                const activeTab=document.querySelector('.tab.active');
+                if(activeTab&&(activeTab.dataset.tab==='config'||activeTab.dataset.tab==='teams')){
+                    const p1Btn=document.querySelector('.tab[data-tab="phase1"]');
+                    if(p1Btn) p1Btn.click();
+                }
                 startRealtimeSync();
             }
         }
@@ -1447,6 +1539,7 @@
                     if(tabId==='phase1') renderPhase1UI();
                     if(tabId==='rankingP1') renderRankingP1();
                     if(tabId==='phase2') renderPhase2UI();
+                    if(tabId==='rankingP2') renderRankingP2();
                     if(tabId==='finales') renderFinalesUI();
                     if(tabId==='ranking') updateGlobalRanking();
                     if(tabId==='schedule') renderSchedule();
@@ -1569,8 +1662,15 @@
         .readonly-mode input:not(#loginEmail):not(#loginPassword),
         .readonly-mode button:not(#adminLoginBtn):not(.btn-logout):not(.tab):not(.float-btn):not(#loginPanel button) { opacity:0.6; pointer-events:none; }
         #loginPanel,#loginPanel *{ pointer-events:auto !important; opacity:1 !important; }
+        /* Saisie : peut entrer scores mais pas configurer */
         .saisie-mode .btn-primary,.saisie-mode .btn-warning,.saisie-mode .btn-danger{ opacity:0.35; pointer-events:none; }
         .saisie-mode [data-tab="config"]{ opacity:0.35; pointer-events:none; }
+        .saisie-mode [data-tab="teams"]{ opacity:0.35; pointer-events:none; }
+        .saisie-mode .terrain-select,.saisie-mode .time-input,.saisie-mode .terrain-select-fin{ opacity:0.35; pointer-events:none; }
+        .saisie-mode .format-e-editor,.saisie-mode #sallesConfigArea button{ opacity:0.35; pointer-events:none; }
+        /* Visiteur : lecture seule totale + scores non modifiables */
+        .visitor-mode .score-input,.visitor-mode .modal-score{ opacity:0.6; pointer-events:none; }
+        .visitor-mode .terrain-select,.visitor-mode .time-input,.visitor-mode .terrain-select-fin{ opacity:0.35; pointer-events:none; }
         label{ color:var(--text-muted); font-size:0.75rem; display:flex; align-items:center; gap:6px; cursor:pointer; }
         input[type="checkbox"]{ accent-color:var(--accent); width:14px; height:14px; }
         input[type="radio"]{ accent-color:var(--accent); }
@@ -1685,6 +1785,7 @@
         <button class="tab" data-tab="phase1">🏐 Phase 1</button>
         <button class="tab" data-tab="rankingP1">📊 Class. P1</button>
         <button class="tab" data-tab="phase2">🏆 Phase 2</button>
+        <button class="tab" data-tab="rankingP2">📊 Class. P2</button>
         <button class="tab" data-tab="finales">🥇 Classement</button>
         <button class="tab" data-tab="ranking">📈 Final</button>
         <button class="tab" data-tab="schedule">📅 Programme</button>
@@ -1775,6 +1876,7 @@
     <div id="phase1Tab" class="tab-content"><div id="phase1Area"></div></div>
     <div id="rankingP1Tab" class="tab-content"><div id="rankingP1Area"></div></div>
     <div id="phase2Tab" class="tab-content"><div id="phase2Area"></div></div>
+    <div id="rankingP2Tab" class="tab-content"><div id="rankingP2Area"></div></div>
     <div id="finalesTab" class="tab-content"><div id="finalesArea"><div class="panel"><div class="panel-body" style="color:var(--text-muted);">Générez la Phase 2 puis cliquez sur "Générer matchs classement" dans Config.</div></div></div></div>
     <div id="rankingTab" class="tab-content"><div id="rankingArea"></div></div>
     <div id="scheduleTab" class="tab-content"><div id="scheduleArea"></div></div>
