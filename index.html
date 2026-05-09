@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=yes">
-    <title>Pickleball 40 | Tournoi Interclubs</title>
+    <title>Pickleball 40 | Tournoi Interclubs v3</title>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -234,16 +234,52 @@
 
         // ============ TIRAGE P1 ============
         function drawGroupsAvoidSameClub(nbGroups,teamsPerGroup){
-            let shuffled=shuffleArray([...teams]), groupsTemp=Array.from({length:nbGroups},()=>[]);
-            for(let team of shuffled){
-                let placed=false;
-                for(let g=0;g<nbGroups;g++){
-                    if(groupsTemp[g].length<teamsPerGroup&&!groupsTemp[g].some(t=>clubBaseName(t.club)===clubBaseName(team.club))){ groupsTemp[g].push(team); placed=true; break; }
+            // Compte les conflits (équipes du même club dans un même groupe)
+            function countConflicts(groupsTemp){
+                let conflicts=0;
+                for(let g of groupsTemp){
+                    for(let i=0;i<g.length;i++) for(let j=i+1;j<g.length;j++)
+                        if(clubBaseName(g[i].club)===clubBaseName(g[j].club)) conflicts++;
                 }
-                if(!placed) for(let g=0;g<nbGroups;g++) if(groupsTemp[g].length<teamsPerGroup){ groupsTemp[g].push(team); break; }
+                return conflicts;
+            }
+            function oneTry(){
+                let shuffled=shuffleArray([...teams]);
+                let groupsTemp=Array.from({length:nbGroups},()=>[]);
+                // Trier les équipes par fréquence de club pour placer les clubs nombreux en premier
+                let clubCount={};
+                shuffled.forEach(t=>{ let k=clubBaseName(t.club); clubCount[k]=(clubCount[k]||0)+1; });
+                shuffled.sort((a,b)=>(clubCount[clubBaseName(b.club)]||0)-(clubCount[clubBaseName(a.club)]||0));
+                for(let team of shuffled){
+                    // Chercher un groupe sans conflit avec place disponible
+                    let candidates=[];
+                    for(let g=0;g<nbGroups;g++){
+                        if(groupsTemp[g].length<teamsPerGroup&&!groupsTemp[g].some(t=>clubBaseName(t.club)===clubBaseName(team.club)))
+                            candidates.push(g);
+                    }
+                    if(candidates.length>0){
+                        // Choisir le groupe le moins rempli (pour équilibrer)
+                        candidates.sort((a,b)=>groupsTemp[a].length-groupsTemp[b].length);
+                        groupsTemp[candidates[0]].push(team);
+                    } else {
+                        // Fallback : groupe avec place disponible (conflit inévitable)
+                        let fallback=groupsTemp.findIndex(g=>g.length<teamsPerGroup);
+                        if(fallback>=0) groupsTemp[fallback].push(team);
+                    }
+                }
+                return groupsTemp;
+            }
+            let best=null, bestScore=Infinity;
+            const MAX_TRIES=300;
+            for(let attempt=0;attempt<MAX_TRIES;attempt++){
+                let result=oneTry();
+                let score=countConflicts(result);
+                if(score<bestScore){ bestScore=score; best=result; }
+                if(bestScore===0) break; // Parfait, on s'arrête
             }
             let groupNames=(nbGroups===10)?GROUP_NAMES_10:GROUP_NAMES_8;
-            return groupsTemp.map((g,i)=>({name:groupNames[i],teams:g}));
+            if(bestScore>0) showMsg(`⚠️ Tirage : ${bestScore} conflit(s) de club inévitable(s) après 300 essais`);
+            return best.map((g,i)=>({name:groupNames[i],teams:g}));
         }
 
         function drawOrdered(){
@@ -285,9 +321,17 @@
         // ============ GÉNÉRATION MATCHS P1 ============
         function generateRoundRobin(teamsList,groupName,startId,groupIndex){
             let n=teamsList.length, matches=[], id=startId;
-            // Attribution terrain : groupes dans même salle si possible
-            let totalT=getTotalTerrains();
-            let baseTerrain=(groupIndex%totalT)+1;
+            // Attribution terrain : si 2 salles, groupes pairs→salle 0, impairs→salle 1
+            // Si 1 salle, rotation simple sur tous les terrains
+            let baseTerrain;
+            if(nbSalles>1){
+                let salleIdx=groupIndex%nbSalles;
+                let terrainsS=getTerrainsForSalle(salleIdx);
+                baseTerrain=terrainsS[0]; // tous les matchs du groupe dans cette salle
+            } else {
+                let totalT=getTotalTerrains();
+                baseTerrain=(groupIndex%totalT)+1;
+            }
             let indices=[...Array(n).keys()];
             if(n%2===1) indices.push(-1);
             let rounds=indices.length-1;
@@ -332,12 +376,13 @@
                 t1.matchScores.push(s1); t2.matchScores.push(s2);
             });
             stats.forEach(s=>{ s.diff=s.bp-s.bc; });
-            // Critères de classement : 1.pts 2.diff 3.bp 4.wins 5.confrontation directe 6.meilleur score 1er match 7.meilleur score 2 premiers matchs
+            // Critères de classement : 1.pts 2.victoires (prioritaire sur nuls) 3.diff 4.bp 5.confrontation directe 6.meilleur score 1er match 7.meilleur score 2 premiers matchs
             stats.sort((a,b)=>{
                 if(b.pts!==a.pts) return b.pts-a.pts;
+                // À égalité de points : victoires prioritaires sur nuls
+                if(b.w!==a.w) return b.w-a.w;
                 if(b.diff!==a.diff) return b.diff-a.diff;
                 if(b.bp!==a.bp) return b.bp-a.bp;
-                if(b.w!==a.w) return b.w-a.w;
                 // confrontation directe
                 let direct=getDirectConfrontation(a.team,b.team,groupName);
                 if(direct!==0) return direct;
@@ -481,7 +526,7 @@
             if(!groupsP1.length||!matchesP1.length){ area.innerHTML='<div class="panel"><div class="panel-body" style="color:var(--text-muted);">Générez la Phase 1 d\'abord.</div></div>'; return; }
             let all=[];
             for(let grp of groupsP1){ let rank=computeRankP1(grp.name); rank.forEach(r=>{ all.push({team:r.team,pts:r.pts,diff:r.diff,bp:r.bp,wins:r.w,draws:r.d,losses:r.l}); }); }
-            all.sort((a,b)=>b.pts-a.pts||b.diff-a.diff||b.bp-a.bp||b.wins-a.wins);
+            all.sort((a,b)=>b.pts-a.pts||b.wins-a.wins||b.diff-a.diff||b.bp-a.bp);
             let html=`<div class="panel"><div class="panel-header">📊 Classement général Phase 1</div><div class="panel-body">
             <table class="ranking-table"><thead><tr><th>Rang</th><th>Club</th><th>Joueurs</th><th>Pts</th><th>Diff</th><th>BP</th><th>V/N/D</th></tr></thead><tbody>`;
             all.forEach((r,idx)=>{
@@ -562,13 +607,13 @@
             if(!groupsP1.length||!matchesP1.length){ showMsg("Générez Phase 1 d'abord"); return; }
             let all=getAllTeamsRankedP1();
             let firsts=all.filter(t=>t.posInGroup===1), seconds=all.filter(t=>t.posInGroup===2);
-            let thirds=all.filter(t=>t.posInGroup===3).sort((a,b)=>(b.pts-a.pts)||(b.diff-a.diff)||(b.bp-a.bp));
+            let thirds=all.filter(t=>t.posInGroup===3).sort((a,b)=>(b.pts-a.pts)||(b.wins-a.wins)||(b.diff-a.diff)||(b.bp-a.bp));
             let fourths=all.filter(t=>t.posInGroup===4), fifths=all.filter(t=>t.posInGroup===5);
 
             function buildAndGenerate(eliteQ,consolQ,eliteSize,eliteNb,consolSize,consolNb,msgLabel){
                 if(eliteQ.length!==eliteSize*eliteNb||consolQ.length!==consolSize*consolNb){ showMsg(`Erreur sélection P2 ${msgLabel}`); return false; }
-                eliteQ.sort((a,b)=>(b.pts-a.pts)||(b.diff-a.diff)||(b.bp-a.bp));
-                consolQ.sort((a,b)=>(b.pts-a.pts)||(b.diff-a.diff)||(b.bp-a.bp));
+                eliteQ.sort((a,b)=>(b.pts-a.pts)||(b.wins-a.wins)||(b.diff-a.diff)||(b.bp-a.bp));
+                consolQ.sort((a,b)=>(b.pts-a.pts)||(b.wins-a.wins)||(b.diff-a.diff)||(b.bp-a.bp));
                 let eliteGroups=buildSnakeGroups(eliteQ,eliteSize,eliteNb,"Élite");
                 let consolGroups=buildSnakeGroups(consolQ,consolSize,consolNb,"Consolation");
                 genMatchesFromGroups([...eliteGroups,...consolGroups]);
@@ -604,7 +649,7 @@
             if(!groupsP1.length||!matchesP1.length){ showMsg("Générez Phase 1 d'abord"); return; }
             // Classement général P1
             let all=getAllTeamsRankedP1();
-            all.sort((a,b)=>b.pts-a.pts||b.diff-a.diff||b.bp-a.bp||b.wins-a.wins);
+            all.sort((a,b)=>b.pts-a.pts||b.wins-a.wins||b.diff-a.diff||b.bp-a.bp);
 
             // Construire les groupes selon les rangs définis
             groupsP2E=FORMAT_E_RANKS.map((ranks,poolIdx)=>({
@@ -680,12 +725,13 @@
                 t1.matchScores.push(s1);t2.matchScores.push(s2);
             });
             stats.forEach(s=>s.diff=s.bp-s.bc);
-            // Critères : 1.pts 2.diff 3.bp 4.wins 5.confrontation directe 6.meilleur score 1er match 7.meilleur score 2 premiers matchs
+            // Critères : 1.pts 2.victoires (prioritaire sur nuls) 3.diff 4.bp 5.confrontation directe 6.meilleur score 1er match 7.meilleur score 2 premiers matchs
             stats.sort((a,b)=>{
                 if(b.pts!==a.pts) return b.pts-a.pts;
+                // À égalité de points : victoires prioritaires sur nuls
+                if(b.w!==a.w) return b.w-a.w;
                 if(b.diff!==a.diff) return b.diff-a.diff;
                 if(b.bp!==a.bp) return b.bp-a.bp;
-                if(b.w!==a.w) return b.w-a.w;
                 let dm=getDirectConfrontationP2(a.team,b.team,groupName);
                 if(dm!==0) return dm;
                 let a1=a.matchScores[0]??-1,b1=b.matchScores[0]??-1;
@@ -984,7 +1030,7 @@
 
         function computeTotalPoints(){
             let map=new Map();
-            teams.forEach(t=>map.set(t.id,{pts:0,diff:0,bp:0,bc:0,wins:0,draws:0,losses:0,team:t,ptsP1:0,ptsP2:0}));
+            teams.forEach(t=>map.set(t.id,{pts:0,diff:0,bp:0,bc:0,wins:0,draws:0,losses:0,team:t,ptsP1:0,ptsP2:0,posInGroupP1:99,posInGroupP2:99}));
             function add(id,forScore,against,win,draw,phase){
                 let s=map.get(id); if(!s) return;
                 if(win){s.pts+=3;s.wins++;if(phase===1)s.ptsP1+=3;else s.ptsP2+=3;}
@@ -994,7 +1040,28 @@
             }
             matchesP1.forEach(m=>{ if(!isPlayed(m)) return; let s1=getScore(m.score1),s2=getScore(m.score2); if(s1>s2){add(m.team1.id,s1,s2,true,false,1);add(m.team2.id,s2,s1,false,false,1);}else if(s2>s1){add(m.team2.id,s2,s1,true,false,1);add(m.team1.id,s1,s2,false,false,1);}else{add(m.team1.id,s1,s2,false,true,1);add(m.team2.id,s2,s1,false,true,1);} });
             matchesP2.forEach(m=>{ if(!isPlayed(m)||!m.team1||!m.team2) return; let s1=getScore(m.score1),s2=getScore(m.score2); if(s1>s2){add(m.team1.id,s1,s2,true,false,2);add(m.team2.id,s2,s1,false,false,2);}else if(s2>s1){add(m.team2.id,s2,s1,true,false,2);add(m.team1.id,s1,s2,false,false,2);}else{add(m.team1.id,s1,s2,false,true,2);add(m.team2.id,s2,s1,false,true,2);} });
-            return Array.from(map.values()).sort((a,b)=>b.pts-a.pts||b.diff-a.diff||b.bp-a.bp||b.wins-a.wins);
+            // Enrichir avec la position dans le groupe P1 (pour départage final)
+            for(let grp of groupsP1){
+                let rank=computeRankP1(grp.name);
+                rank.forEach((r,idx)=>{ let s=map.get(r.team.id); if(s) s.posInGroupP1=idx+1; });
+            }
+            // Enrichir avec la position dans le groupe P2
+            if(matchesP2.length){
+                let groupNamesP2=new Set(matchesP2.map(m=>m.groupName));
+                groupNamesP2.forEach(gName=>{
+                    let rank=computePhase2Rank(gName);
+                    rank.forEach((r,idx)=>{ let s=map.get(r.team?.id); if(s) s.posInGroupP2=idx+1; });
+                });
+            }
+            // Tri final : pts → victoires → posInGroupP2 → posInGroupP1 → diff → bp
+            return Array.from(map.values()).sort((a,b)=>
+                b.pts-a.pts ||
+                b.wins-a.wins ||
+                a.posInGroupP2-b.posInGroupP2 ||
+                a.posInGroupP1-b.posInGroupP1 ||
+                b.diff-a.diff ||
+                b.bp-a.bp
+            );
         }
 
         function updateGlobalRanking(){
