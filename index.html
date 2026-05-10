@@ -322,15 +322,15 @@
         function generateRoundRobin(teamsList,groupName,startId,groupIndex){
             let n=teamsList.length, matches=[], id=startId;
 
-            // Déterminer la salle et la liste des terrains pour ce groupe
+            // Salle fixe pour ce groupe : groupes pairs→salle 0, impairs→salle 1 (si 2 salles)
             let salleIdx = nbSalles > 1 ? (groupIndex % nbSalles) : 0;
-            let salleTerrains = getTerrainsForSalle(salleIdx); // ex: [0,1,2] (0-indexé) → on utilise +1 pour afficher
+            let salleTerrains = getTerrainsForSalle(salleIdx); // tableau de numéros de terrains (1-basé)
 
-            // Générer tous les rounds (round-robin de Berger)
+            // Round-robin de Berger
             let indices=[...Array(n).keys()];
             if(n%2===1) indices.push(-1);
+            let allRounds=[];
             let rounds=indices.length-1;
-            let allRounds=[]; // allRounds[r] = liste de matchs du round r
             for(let round=0;round<rounds;round++){
                 let roundMatches=[];
                 for(let i=0;i<indices.length/2;i++){
@@ -341,17 +341,17 @@
                 indices.splice(1,0,indices.pop());
             }
 
-            // Répartir les matchs de chaque round sur les terrains de la salle, en rotation
-            // Ex : 4 équipes → 3 rounds de 2 matchs chacun. Avec 3 terrains : T1,T2 au round 1, T3,T1 au round 2, etc.
-            let terrainCursor=0;
+            // Attribuer les terrains de la salle en rotation sur tous les matchs du groupe
+            let tc=0;
             allRounds.forEach(roundMatches=>{
                 roundMatches.forEach(rm=>{
-                    let terrain = salleTerrains[terrainCursor % salleTerrains.length]; // déjà 1-basé
-                    matches.push({id:id++, group:groupName, team1:rm.team1, team2:rm.team2, score1:'', score2:'', terrain});
-                    terrainCursor++;
+                    let terrain=salleTerrains[tc % salleTerrains.length];
+                    // salleRef = salle permanente du groupe (jamais écrasée par scheduleGlobal)
+                    matches.push({id:id++, group:groupName, team1:rm.team1, team2:rm.team2,
+                                  score1:'', score2:'', terrain, salleRef:salleIdx});
+                    tc++;
                 });
             });
-
             return {matches, nextId:id};
         }
 
@@ -1234,15 +1234,15 @@
             const QUICK_SCORES=[0,6,7,8,9,10,11,12,13,14,15];
 
             function scoreStepperHtml(mid,ph,side,val,borderColor,bgColor){
-                let v=val===''?'':parseInt(val);
-                let displayVal=val===''?'–':v;
-                return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+                return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
                     <button class="sm-btn-step" data-id="${mid}" data-phase="${ph}" data-side="${side}" data-delta="1"
-                        style="width:36px;height:28px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:1.1rem;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">▲</button>
-                    <input type="number" min="0" inputmode="numeric" class="modal-score-inp" data-id="${mid}" data-phase="${ph}" data-side="${side}" value="${val}"
-                        style="width:52px;height:48px;text-align:center;font-size:1.5rem;font-weight:900;border-radius:10px;border:2px solid ${borderColor};background:${bgColor};color:var(--text);font-family:'DM Mono','Poppins',sans-serif;outline:none;-moz-appearance:textfield;">
+                        style="width:62px;height:30px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:1.2rem;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation;">▲</button>
+                    <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2"
+                        class="modal-score-inp" data-id="${mid}" data-phase="${ph}" data-side="${side}" value="${val}"
+                        placeholder="–"
+                        style="width:62px;height:56px;text-align:center;font-size:2rem;font-weight:900;border-radius:10px;border:2px solid ${borderColor};background:${bgColor};color:var(--text);font-family:'DM Mono',monospace;outline:none;box-sizing:border-box;">
                     <button class="sm-btn-step" data-id="${mid}" data-phase="${ph}" data-side="${side}" data-delta="-1"
-                        style="width:36px;height:28px;border-radius:8px;border:none;background:var(--surface);color:var(--text);font-size:1.1rem;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;border:1px solid var(--border);">▼</button>
+                        style="width:62px;height:30px;border-radius:8px;border:none;background:var(--surface);color:var(--text);font-size:1.2rem;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);touch-action:manipulation;">▼</button>
                 </div>`;
             }
 
@@ -1380,8 +1380,11 @@ window._smNav=function(idx){ _smSectionIdx=idx; renderScoreModal(); };
                 const isSide1=inp.dataset.side==='1';
                 inp.style.borderColor=isSide1?bc1:bc2;
                 inp.style.background=isSide1?bg1:bg2;
+                // Mettre à jour la valeur uniquement si le champ n'est pas actif
+                // (evite d'ecraser la saisie en cours ex: "1" avant "11")
                 if(document.activeElement!==inp){
-                    inp.value=isSide1?(s1===''?'':s1):(s2===''?'':s2);
+                    const newVal=isSide1?(s1===''?'':String(s1)):(s2===''?'':String(s2));
+                    if(inp.value!==newVal) inp.value=newVal;
                 }
             });
 
@@ -1447,7 +1450,10 @@ window._smNav=function(idx){ _smSectionIdx=idx; renderScoreModal(); };
             const inp=e.target, mid=parseInt(inp.dataset.id), phase=inp.dataset.phase, side=inp.dataset.side;
             const m=phase==='P1'?matchesP1.find(function(x){return x.id===mid;}):phase==='P2'?matchesP2.find(function(x){return x.id===mid;}):matchesFinales.find(function(x){return x.id===mid;});
             if(!m) return;
-            if(side==='1') m.score1=inp.value; else m.score2=inp.value;
+            // Garder seulement les chiffres, max 2 chars
+            let raw=inp.value.replace(/[^0-9]/g,'').slice(0,2);
+            inp.value=raw; // corriger in-place sans perdre le focus
+            if(side==='1') m.score1=raw; else m.score2=raw;
             _refreshMatchCard(m, phase);
             _commitScore(phase);
         }
@@ -1463,23 +1469,18 @@ window._smNav=function(idx){ _smSectionIdx=idx; renderScoreModal(); };
                 let slotDur=duration+pause, startMin=timeToMin(startTimeStr);
                 matchList.forEach(m=>m.startTime='');
 
-                // Pré-calculer la salle de chaque match (fixe, basée sur le terrain assigné à la génération)
-                // Si pas de terrain assigné, on considère toute la salle 0
+                // salleRef est la salle fixe du groupe (définie à la génération, jamais modifiée)
                 function getMatchSalle(m){
-                    if(!m.terrain) return 0;
-                    return getSalleForTerrain(m.terrain);
-                }
-                function getSalleTerrains(salleIdx){
-                    return getTerrainsForSalle(salleIdx); // retourne terrains 1-basés
+                    if(m.salleRef!=null) return m.salleRef;
+                    if(m.terrain) return getSalleForTerrain(m.terrain);
+                    return 0;
                 }
 
                 let remaining=[...matchList], wave=0, busyInPrevWave=new Set(), lastPlayedWave={};
                 while(remaining.length>0){
                     let waveTime=startMin+wave*slotDur;
                     let busyInWave=new Set(), waveMatches=[];
-                    // Suivre quels terrains sont pris dans ce créneau
                     let busyTerrains=new Set();
-
                     let placed=true;
                     while(placed){
                         placed=false;
@@ -1491,19 +1492,20 @@ window._smNav=function(idx){ _smSectionIdx=idx; renderScoreModal(); };
                             !busyInWave.has(m.team1?.id)&&!busyInWave.has(m.team2?.id)
                         );
                         if(!candidates.length) break;
-
-                        // Parmi les candidats, chercher un qui a un terrain libre dans sa salle
-                        candidates.sort((a,b)=>{ let lastA=Math.max(lastPlayedWave[a.team1?.id]??-99,lastPlayedWave[a.team2?.id]??-99); let lastB=Math.max(lastPlayedWave[b.team1?.id]??-99,lastPlayedWave[b.team2?.id]??-99); return lastA-lastB; });
-
+                        candidates.sort((a,b)=>{
+                            let lastA=Math.max(lastPlayedWave[a.team1?.id]??-99,lastPlayedWave[a.team2?.id]??-99);
+                            let lastB=Math.max(lastPlayedWave[b.team1?.id]??-99,lastPlayedWave[b.team2?.id]??-99);
+                            return lastA-lastB;
+                        });
+                        // Trouver un terrain libre dans la salle du candidat (salleRef respectée)
                         let chosen=null, chosenTerrain=null;
                         for(let cand of candidates){
-                            let salleIdx=getMatchSalle(cand);
-                            let salleTerrains=getSalleTerrains(salleIdx);
-                            let freeTerrain=salleTerrains.find(t=>!busyTerrains.has(t));
-                            if(freeTerrain!=null){ chosen=cand; chosenTerrain=freeTerrain; break; }
+                            let salle=getMatchSalle(cand);
+                            let terrains=getTerrainsForSalle(salle);
+                            let free=terrains.find(t=>!busyTerrains.has(t));
+                            if(free!=null){ chosen=cand; chosenTerrain=free; break; }
                         }
                         if(!chosen) break;
-
                         remaining.splice(remaining.indexOf(chosen),1);
                         chosen.startTime=minToTime(waveTime);
                         chosen.terrain=chosenTerrain;
@@ -1513,15 +1515,12 @@ window._smNav=function(idx){ _smSectionIdx=idx; renderScoreModal(); };
                         waveMatches.push(chosen);
                         placed=true;
                     }
-
                     busyInPrevWave=busyInWave;
-                    // Sécurité : si aucun match placé mais il en reste, forcer le premier
                     if(!waveMatches.length&&remaining.length){
                         let m=remaining.shift();
-                        let salleIdx=getMatchSalle(m);
-                        let salleTerrains=getSalleTerrains(salleIdx);
+                        let terrains=getTerrainsForSalle(getMatchSalle(m));
                         m.startTime=minToTime(waveTime);
-                        m.terrain=salleTerrains[0]||1;
+                        m.terrain=terrains[0]||1;
                         busyInPrevWave=new Set([m.team1?.id,m.team2?.id]);
                         lastPlayedWave[m.team1?.id]=wave; lastPlayedWave[m.team2?.id]=wave;
                     }
