@@ -1844,89 +1844,84 @@ window._smNav=function(idx){ _smSectionIdx=idx; renderScoreModal(); };
                 return items.map((it,i)=>`<div style="display:flex;gap:8px;"><span style="font-weight:700;color:var(--accent);min-width:18px;">${i+1}.</span><span>${it}</span></div>`).join('');
             }
 
-            area.innerHTML=`<div class="panel">
-                <div class="panel-header">📖 Règlement du Tournoi <span class="format-badge">Format ${fmt}</span></div>
-                <div class="panel-body" style="display:flex;flex-direction:column;gap:12px;">
+            // Construction par blocs pour éviter les backticks imbriqués
+            let b1 = ruleBlock('🏗️','Structure du tournoi',
+                '<b>Phase 1 :</b> '+d.p1+'<br><b>Phase 2 :</b> '+d.p2);
 
-                ${ruleBlock('🏗️','Structure du tournoi',
-                    `<b>Phase 1 :</b> ${d.p1}<br><b>Phase 2 :</b> ${d.p2}`
-                )}
+            let b2 = ruleBlock('🧮','Système de points',
+                '<div style="display:flex;gap:16px;flex-wrap:wrap;">'+
+                '<span>✅ Victoire : <b>3 pts</b></span>'+
+                '<span>🤝 Match nul : <b>2 pts</b></span>'+
+                '<span>❌ Défaite : <b>0 pt</b></span></div>');
 
-                ${ruleBlock('🧮','Système de points',
-                    `<div style="display:flex;gap:16px;flex-wrap:wrap;">
-                        <span>✅ Victoire : <b>3 pts</b></span>
-                        <span>🤝 Match nul : <b>2 pts</b></span>
-                        <span>❌ Défaite : <b>0 pt</b></span>
-                    </div>`
-                )}
+            let b3 = ruleBlock('🎾','Organisation des salles',
+                salleInfo+'<br><span style="font-size:0.72rem;color:var(--text-muted);">'+
+                'Chaque groupe joue <b>exclusivement dans sa salle</b> pour toute la durée de la phase, '+
+                'en utilisant tous les terrains disponibles de cette salle.</span>');
 
-                ${ruleBlock('🎾','Organisation des salles',
-                    `${salleInfo}<br>
-                    <span style="font-size:0.72rem;color:var(--text-muted);">Chaque groupe joue <b>exclusivement dans sa salle</b> pour toute la durée de la phase, en utilisant tous les terrains disponibles de cette salle.</span>`
-                )}
+            let b4 = ruleBlock('🎯','Tirage au sort (Phase 1)',
+                'Le tirage est effectué aléatoirement avec <b>300 tentatives</b> pour minimiser '+
+                "les rencontres entre équipes d'un même club dans le même groupe. "+
+                'Un avertissement est affiché si des conflits restent inévitables.');
 
-                ${ruleBlock('🎯','Tirage au sort (Phase 1)',
-                    `Le tirage est effectué aléatoirement avec <b>300 tentatives</b> pour minimiser les rencontres entre équipes d'un même club dans le même groupe. Un avertissement est affiché si des conflits restent inévitables.`
-                )}
+            let b5 = ruleBlock('📊','Classement dans les groupes (P1 et P2)',
+                "Critères appliqués dans l'ordre strict en cas d'égalité :<br>"+
+                ruleList([
+                    "<b>Victoires</b> (prioritaires sur les matchs nuls)",
+                    "Points totaux",
+                    "Différentiel de points",
+                    "Meilleure attaque (points marqués)",
+                    "Confrontation directe",
+                    "Meilleur score du 1er match de poule",
+                    "Meilleur score cumulé des 2 premiers matchs de poule"
+                ]));
 
-                ${ruleBlock('📊','Classement dans les groupes (P1 et P2)',
-                    `Critères appliqués dans l'ordre strict en cas d'égalité :<br>
-                    ${ruleList([
-                        "<b>Victoires</b> (prioritaires sur les matchs nuls)",
-                        "Points totaux",
-                        "Différentiel de points",
-                        "Meilleure attaque (points marqués)",
-                        "Confrontation directe",
-                        "Meilleur score du 1er match de poule",
-                        "Meilleur score cumulé des 2 premiers matchs de poule"
-                    ])}`
-                )}
+            let b6 = ruleBlock('🏅','Classement général (Class.1 & Class.2)',
+                "Critères appliqués dans l'ordre strict en cas d'égalité :<br>"+
+                ruleList([
+                    "<b>Place dans le groupe propre</b> — le 1er d'un groupe précède le 2e d'un autre quel que soit le nombre de points",
+                    "Points totaux (P1 + P2)",
+                    "Différentiel de points",
+                    "Meilleure attaque (points marqués)",
+                    "Nombre de victoires",
+                    "Confrontation directe (P1 ou P2)",
+                    "Meilleur score du 1er match de poule",
+                    "Meilleur score cumulé des 2 premiers matchs de poule"
+                ]));
 
-                ${ruleBlock('🏅','Classement général (Class.1 & Class.2)',
-                    `Critères appliqués dans l'ordre strict en cas d'égalité :<br>
-                    ${ruleList([
-                        "<b>Place dans le groupe propre</b> — le 1er d'un groupe précède le 2e d'un autre quel que soit le nombre de points",
-                        "Points totaux (P1 + P2)",
-                        "Différentiel de points",
-                        "Meilleure attaque (points marqués)",
-                        "Nombre de victoires",
-                        "Confrontation directe (P1 ou P2)",
-                        "Meilleur score du 1er match de poule",
-                        "Meilleur score cumulé des 2 premiers matchs de poule"
-                    ])}`
-                )}
+            let b7 = fmt==='E' ? ruleBlock('🏆','Format E — Composition des poules P2',
+                "Les 10 poules sont constituées d'après le classement général de la Phase 1 :<br>"+
+                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin-top:6px;font-size:0.72rem;">'+
+                '<span>🥇 Élite 1 : 1e, 8e, 4e, 6e</span><span>🥇 Élite 2 : 2e, 7e, 3e, 5e</span>'+
+                '<span>🟡 Or 1 : 9e, 14e, 12e, 16e</span><span>🟡 Or 2 : 10e, 13e, 11e, 15e</span>'+
+                '<span>⚪ Argent 1 : 17e, 20e, 22e, 24e</span><span>⚪ Argent 2 : 18e, 19e, 21e, 23e</span>'+
+                '<span>🟤 Bronze 1 : 25e, 28e, 30e, 32e</span><span>🟤 Bronze 2 : 26e, 27e, 29e, 31e</span>'+
+                '<span>🎗️ Consol. 1 : 33e, 36e, 38e, 40e</span><span>🎗️ Consol. 2 : 34e, 35e, 37e, 39e</span></div>'+
+                '<div style="margin-top:8px;font-size:0.72rem;color:var(--text-muted);">'+
+                "Possibilité d'échanger des équipes entre les deux poules d'une même catégorie si elles se retrouvaient ensemble en P1.</div>")
+                : '';
 
-                ${fmt==='E'?ruleBlock('🏆','Format E — Composition des poules P2',
-                    `Les 10 poules sont constituées d'après le classement général de la Phase 1 :<br>
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin-top:6px;font-size:0.72rem;">
-                        <span>🥇 Élite 1 : 1e, 8e, 4e, 6e</span><span>🥇 Élite 2 : 2e, 7e, 3e, 5e</span>
-                        <span>🟡 Or 1 : 9e, 14e, 12e, 16e</span><span>🟡 Or 2 : 10e, 13e, 11e, 15e</span>
-                        <span>⚪ Argent 1 : 17e, 20e, 22e, 24e</span><span>⚪ Argent 2 : 18e, 19e, 21e, 23e</span>
-                        <span>🟤 Bronze 1 : 25e, 28e, 30e, 32e</span><span>🟤 Bronze 2 : 26e, 27e, 29e, 31e</span>
-                        <span>🎗️ Consol. 1 : 33e, 36e, 38e, 40e</span><span>🎗️ Consol. 2 : 34e, 35e, 37e, 39e</span>
-                    </div>
-                    <div style="margin-top:8px;font-size:0.72rem;color:var(--text-muted);">Possibilité d'échanger des équipes entre les deux poules d'une même catégorie si elles se retrouvaient ensemble en P1.</div>`
-                ):''}
+            let b8 = ruleBlock('🏆','Matchs de classement (Phase finale)',
+                '1er pool A vs 1er pool B → places 1 &amp; 2 · … · 4e pool A vs 4e pool B → places 39 &amp; 40<br><br>'+
+                "<b>En cas de match nul</b>, départage dans l'ordre strict :<br>"+
+                ruleList([
+                    "Cumul de points P1 + P2",
+                    "Goal-average général (différentiel de points sur tout le tournoi)",
+                    "Meilleure attaque (total de points marqués P1 + P2)",
+                    "Nombre de victoires (P1 + P2)"
+                ]));
 
-                ${ruleBlock('🏆','Matchs de classement (Phase finale)',
-                    `1er pool A vs 1er pool B → places 1 &amp; 2 · … · 4e pool A vs 4e pool B → places 39 &amp; 40<br><br>
-                    <b>En cas de match nul</b>, départage dans l'ordre strict :<br>
-                    ${ruleList([
-                        "Cumul de points P1 + P2",
-                        "Goal-average général (différentiel de points sur tout le tournoi)",
-                        "Meilleure attaque (total de points marqués P1 + P2)",
-                        "Nombre de victoires (P1 + P2)"
-                    ])}`
-                )}
+            let b9 = ruleBlock('🕐','Planning',
+                '<b>'+nbSalles+' salle'+(nbSalles>1?'s':'')+'</b> · <b>'+total+' terrain'+(total>1?'s':'')+'</b><br>'+
+                '🌅 Début P1 : <b>'+timeSettings.startP1+'</b> · Durée : <b>'+timeSettings.durationP1+' min</b><br>'+
+                '🍽️ Déjeuner : <b>'+(timeSettings.lunchStart||'–')+'</b> · Durée : <b>'+(timeSettings.lunchDuration||'–')+' min</b><br>'+
+                '☀️ Début P2 : <b>'+(timeSettings.startP2||'–')+'</b> · Durée : <b>'+timeSettings.durationP2+' min</b>');
 
-                ${ruleBlock('🕐','Planning',
-                    `<b>${nbSalles} salle${nbSalles>1?'s':''}</b> · <b>${total} terrain${total>1?'s':''}</b><br>
-                    🌅 Début P1 : <b>${timeSettings.startP1}</b> · Durée : <b>${timeSettings.durationP1} min</b><br>
-                    🍽️ Déjeuner : <b>${timeSettings.lunchStart||'–'}</b> · Durée : <b>${timeSettings.lunchDuration||'–'} min</b><br>
-                    ☀️ Début P2 : <b>${timeSettings.startP2||'–'}</b> · Durée : <b>${timeSettings.durationP2} min</b>`
-                )}
-
-            </div></div>`;
+            area.innerHTML = '<div class="panel">'
+                + '<div class="panel-header">📖 Règlement du Tournoi <span class="format-badge">Format '+fmt+'</span></div>'
+                + '<div class="panel-body" style="display:flex;flex-direction:column;gap:12px;">'
+                + b1 + b2 + b3 + b4 + b5 + b6 + b7 + b8 + b9
+                + '</div></div>';
         }
 
         // ============ FIREBASE ============
