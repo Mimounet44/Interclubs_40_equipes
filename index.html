@@ -535,13 +535,19 @@
             const area=document.getElementById('rankingP1Area'); if(!area) return;
             if(!groupsP1.length||!matchesP1.length){ area.innerHTML='<div class="panel"><div class="panel-body" style="color:var(--text-muted);">Générez la Phase 1 d\'abord.</div></div>'; return; }
             let all=[];
-            for(let grp of groupsP1){ let rank=computeRankP1(grp.name); rank.forEach(r=>{ all.push({team:r.team,pts:r.pts,diff:r.diff,bp:r.bp,wins:r.w,draws:r.d,losses:r.l}); }); }
+            for(let grp of groupsP1){ 
+                let rank=computeRankP1(grp.name); 
+                rank.forEach((r,idx)=>{ 
+                    all.push({team:r.team, pts:r.pts, diff:r.diff, bp:r.bp, wins:r.w, draws:r.d, losses:r.l, groupName:grp.name, groupPos:idx+1}); 
+                }); 
+            }
             all.sort((a,b)=>b.pts-a.pts||b.wins-a.wins||b.diff-a.diff||b.bp-a.bp);
             let html=`<div class="panel"><div class="panel-header">📊 Classement général Phase 1</div><div class="panel-body">
-            <table class="ranking-table"><thead><tr><th>Rang</th><th>Club</th><th>Joueurs</th><th>Pts</th><th>Diff</th><th>BP</th><th>V/N/D</th></tr></thead><tbody>`;
+            <table class="ranking-table"><thead><tr><th>Rang</th><th>Club</th><th>Joueurs</th><th>Place/Groupe</th><th>Pts</th><th>Diff</th><th>BP</th><th>V/N/D</th></tr></thead><tbody>`;
             all.forEach((r,idx)=>{
                 let medals=['🥇','🥈','🥉'];
-                html+=`<tr class="rank-${idx+1}"><td class="rank-num">${medals[idx]||idx+1}</td><td><b>${esc(r.team.club)}</b></td><td style="font-size:0.62rem;color:var(--text-muted)">${esc(r.team.player1)}<br>${esc(r.team.player2)}</td><td><b>${r.pts}</b></td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${r.diff>0?'+':''}${r.diff}</td><td>${r.bp}</td><td style="color:var(--text-muted)">${r.wins}/${r.draws}/${r.losses}</td></tr>`;
+                let groupInfo = `#${r.groupPos} (Groupe ${r.groupName})`;
+                html+=`<tr class="rank-${idx+1}"><td class="rank-num">${medals[idx]||idx+1}</td><td><b>${esc(r.team.club)}</b></td><td style="font-size:0.62rem;color:var(--text-muted)">${esc(r.team.player1)}<br>${esc(r.team.player2)}</td><td style="font-size:0.7rem;color:var(--accent);font-weight:600;">${groupInfo}</td><td><b>${r.pts}</b></td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${r.diff>0?'+':''}${r.diff}</td><td>${r.bp}</td><td style="color:var(--text-muted)">${r.wins}/${r.draws}/${r.losses}</td></tr>`;
             });
             html+=`</tbody></table></div></div>`;
             area.innerHTML=html;
@@ -779,10 +785,11 @@
                 catGroups.forEach(([gName])=>{
                     let rank=computePhase2Rank(gName);
                     html+=`<div class="group-card"><div class="group-title" style="color:${color};">📊 ${gName}</div>
-                    <table class="ranking-table" style="margin:0;"><thead><tr><th>#</th><th>Club</th><th>Pts</th><th>V/N/D</th><th>BP:BC</th><th>Diff</th></tr></thead><tbody>`;
+                    <table class="ranking-table" style="margin:0;"><thead><tr><th>#</th><th>Club</th><th>Place/Groupe</th><th>Pts</th><th>V/N/D</th><th>BP:BC</th><th>Diff</th></tr></thead><tbody>`;
                     rank.forEach((r,idx)=>{
                         let medals=['🥇','🥈','🥉','4️⃣','5️⃣'];
-                        html+=`<tr class="rank-${idx+1}"><td class="rank-num">${medals[idx]||idx+1}</td><td><b>${esc(r.team?.club||'?')}</b><br><span style="font-size:0.6rem;color:var(--text-muted)">${esc(r.team?.player1||'')}·${esc(r.team?.player2||'')}</span></td><td><b>${r.pts}</b></td><td style="color:var(--text-muted)">${r.w}/${r.d}/${r.l}</td><td style="color:var(--text-muted)">${r.bp}:${r.bc}</td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${r.diff>0?'+':''}${r.diff}</td></tr>`;
+                        let groupInfo = `#${idx+1}`;
+                        html+=`<tr class="rank-${idx+1}"><td class="rank-num">${medals[idx]||idx+1}</td><td><b>${esc(r.team?.club||'?')}</b><br><span style="font-size:0.6rem;color:var(--text-muted)">${esc(r.team?.player1||'')}·${esc(r.team?.player2||'')}</span></td><td style="font-size:0.7rem;color:var(--accent);font-weight:600;">${groupInfo}</td><td><b>${r.pts}</b></td><td style="color:var(--text-muted)">${r.w}/${r.d}/${r.l}</td><td style="color:var(--text-muted)">${r.bp}:${r.bc}</td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${r.diff>0?'+':''}${r.diff}</td></tr>`;
                     });
                     html+=`</tbody></table></div>`;
                 });
@@ -1044,6 +1051,7 @@
                 pts:0, diff:0, bp:0, bc:0, wins:0, draws:0, losses:0,
                 team:t, ptsP1:0, ptsP2:0,
                 posInGroupP1:99, posInGroupP2:99,
+                groupNameP1:'', groupNameP2:'',
                 matchScoresP1:[], matchScoresP2:[]  // pour critères 6 & 7
             }));
             function add(id,forScore,against,win,draw,phase){
@@ -1073,14 +1081,14 @@
             // Position dans le groupe P1 (critère 1 prioritaire)
             for(let grp of groupsP1){
                 let rank=computeRankP1(grp.name);
-                rank.forEach((r,idx)=>{ let s=map.get(r.team.id); if(s) s.posInGroupP1=idx+1; });
+                rank.forEach((r,idx)=>{ let s=map.get(r.team.id); if(s) { s.posInGroupP1=idx+1; s.groupNameP1=grp.name; } });
             }
             // Position dans le groupe P2
             if(matchesP2.length){
                 let groupNamesP2=new Set(matchesP2.map(m=>m.groupName));
                 groupNamesP2.forEach(gName=>{
                     let rank=computePhase2Rank(gName);
-                    rank.forEach((r,idx)=>{ let s=map.get(r.team?.id); if(s) s.posInGroupP2=idx+1; });
+                    rank.forEach((r,idx)=>{ let s=map.get(r.team?.id); if(s) { s.posInGroupP2=idx+1; s.groupNameP2=gName; } });
                 });
             }
 
@@ -1175,7 +1183,7 @@
                 html+=`</div></div>`;
             }
 
-            // === Classement par points cumulés ===
+            // === Classement par points cumulés (Class.2) ===
             let teamCatMap2=new Map();
             matchesP2.forEach(m=>{ if(m.team1?.id) teamCatMap2.set(m.team1.id,m.category); if(m.team2?.id) teamCatMap2.set(m.team2.id,m.category); });
             const hasP2=teamCatMap2.size>0;
@@ -1183,9 +1191,17 @@
             function buildRow(r,globalRank,localRank,medals){
                 let localSymbol=medals[localRank]||localRank+1;
                 let diff=r.diff>0?`+${r.diff}`:r.diff;
-                return `<tr class="rank-${localRank+1}"><td class="rank-num">${localSymbol}</td><td style="font-size:0.68rem;color:var(--text-muted);text-align:center;">${globalRank}</td><td><b>${esc(r.team.club)}</b></td><td style="font-size:0.62rem;color:var(--text-muted)">${esc(r.team.player1)}<br>${esc(r.team.player2)}</td><td><b>${r.pts}</b></td><td style="color:var(--text-muted)">${r.ptsP1||0}</td><td style="color:var(--text-muted)">${r.ptsP2||0}</td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${diff}</td><td>${r.bp}</td><td style="color:var(--text-muted)">${r.wins}/${r.draws}/${r.losses}</td></tr>`;
+                let groupInfo = '';
+                if (hasP2 && r.groupNameP2 && r.posInGroupP2<=99) {
+                    groupInfo = `#${r.posInGroupP2} (${r.groupNameP2})`;
+                } else if (r.groupNameP1 && r.posInGroupP1<=99) {
+                    groupInfo = `#${r.posInGroupP1} (Groupe ${r.groupNameP1})`;
+                } else {
+                    groupInfo = '—';
+                }
+                return `<tr class="rank-${localRank+1}"><td class="rank-num">${localSymbol}</td><td style="font-size:0.68rem;color:var(--text-muted);text-align:center;">${globalRank}</td><td><b>${esc(r.team.club)}</b></td><td style="font-size:0.62rem;color:var(--text-muted)">${esc(r.team.player1)}<br>${esc(r.team.player2)}</td><td style="font-size:0.7rem;color:var(--accent);font-weight:600;">${groupInfo}</td><td><b>${r.pts}</b></td><td style="color:var(--text-muted)">${r.ptsP1||0}</td><td style="color:var(--text-muted)">${r.ptsP2||0}</td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${diff}</td><td>${r.bp}</td><td style="color:var(--text-muted)">${r.wins}/${r.draws}/${r.losses}</td></tr>`;
             }
-            let thead=`<thead><tr><th>Rang local</th><th>Rang global</th><th>Club</th><th>Joueurs</th><th>Pts</th><th>P1</th><th>P2</th><th>Diff</th><th>BP</th><th>V/N/D</th></tr></thead>`;
+            let thead=`<thead><tr><th>Rang local</th><th>Rang global</th><th>Club</th><th>Joueurs</th><th>Place/Groupe</th><th>Pts</th><th>P1</th><th>P2</th><th>Diff</th><th>BP</th><th>V/N/D</th></tr></thead>`;
 
             if(hasP2){
                 // Grouper par catégorie selon matchesP2
