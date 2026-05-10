@@ -1023,15 +1023,31 @@
             // Afficher dès que des matchs finaux existent (joués ou non)
             let ranking=[];
             if(!matchesFinales.length) return ranking;
+
+            // Classement général par points (pour départager les égalités)
+            let ptRanking=computeTotalPoints();
+            let ptMap=new Map(); // teamId → rang dans ptRanking (0=meilleur)
+            ptRanking.forEach((r,idx)=>ptMap.set(r.team.id,idx));
+
             let seen=new Set();
             matchesFinales.forEach(m=>{
                 if(!m.team1||!m.team2) return;
                 if(isPlayed(m)){
                     let s1=getScore(m.score1),s2=getScore(m.score2);
-                    let winner=s1>=s2?m.team1:m.team2;
-                    let loser=s1>=s2?m.team2:m.team1;
-                    if(!seen.has(winner.id)){ seen.add(winner.id); ranking.push({team:winner,finalRank:m.rank1}); }
-                    if(!seen.has(loser.id)){ seen.add(loser.id); ranking.push({team:loser,finalRank:m.rank2}); }
+                    let draw=(s1===s2);
+                    let winner, loser;
+                    if(!draw){
+                        winner=s1>s2?m.team1:m.team2;
+                        loser=s1>s2?m.team2:m.team1;
+                    } else {
+                        // Égalité : départage par classement général (meilleur rang = gagnant)
+                        let rank1=ptMap.get(m.team1.id)??999;
+                        let rank2=ptMap.get(m.team2.id)??999;
+                        winner=rank1<=rank2?m.team1:m.team2;
+                        loser=rank1<=rank2?m.team2:m.team1;
+                    }
+                    if(!seen.has(winner.id)){ seen.add(winner.id); ranking.push({team:winner,finalRank:m.rank1,drawnOff:draw}); }
+                    if(!seen.has(loser.id)){ seen.add(loser.id); ranking.push({team:loser,finalRank:m.rank2,drawnOff:draw}); }
                 } else {
                     if(!seen.has(m.team1.id)){ seen.add(m.team1.id); ranking.push({team:m.team1,finalRank:m.rank1,pending:true}); }
                     if(!seen.has(m.team2.id)){ seen.add(m.team2.id); ranking.push({team:m.team2,finalRank:m.rank2,pending:true}); }
@@ -1156,14 +1172,15 @@
                     rows.forEach(r=>{
                         let medals=['🥇','🥈','🥉'];
                         let rankLabel=medals[r.finalRank-1]||r.finalRank+'e';
-                        let statusColor=r.pending?'var(--warning)':'var(--accent)';
-                        html+=`<div class="rank-card" style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:12px;border:1px solid ${r.pending?'var(--border)':'rgba(46,125,50,0.3)'};background:${r.pending?'var(--bg)':'rgba(46,125,50,0.05)'};margin-bottom:6px;">
+                        let statusColor=r.pending?'var(--warning)':r.drawnOff?'var(--gold)':'var(--accent)';
+                        let statusTxt=r.pending?'⏳ En attente':r.drawnOff?'🤝 Nul · pts':'✅ Joué';
+                        html+=`<div class="rank-card" style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:12px;border:1px solid ${r.pending?'var(--border)':r.drawnOff?'rgba(200,150,0,0.35)':'rgba(46,125,50,0.3)'};background:${r.pending?'var(--bg)':r.drawnOff?'rgba(200,150,0,0.06)':'rgba(46,125,50,0.05)'};margin-bottom:6px;">
                           <div style="font-size:1.2rem;min-width:36px;text-align:center;font-weight:900;">${rankLabel}</div>
                           <div style="flex:1;min-width:0;">
                             <div style="font-weight:800;font-size:0.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.team?.club||'?')}</div>
                             <div style="font-size:0.6rem;color:var(--text-muted);margin-top:1px;">${esc(r.team?.player1||'')} / ${esc(r.team?.player2||'')}</div>
                           </div>
-                          <div style="font-size:0.75rem;font-weight:700;color:${statusColor};flex-shrink:0;">${r.pending?'⏳ En attente':'✅ Joué'}</div>
+                          <div style="font-size:0.68rem;font-weight:700;color:${statusColor};flex-shrink:0;text-align:right;">${statusTxt}</div>
                         </div>`;
                     });
                     anyDisplayed=true;
@@ -1799,19 +1816,100 @@ window._smNav=function(idx){ _smSectionIdx=idx; renderScoreModal(); };
             };
             let d=fmtData[fmt]||fmtData['A'];
             let total=getTotalTerrains();
-            area.innerHTML=`<div class="panel"><div class="panel-header">📖 Règlement du Tournoi <span class="format-badge">Format ${fmt}</span></div><div class="panel-body" style="display:flex;flex-direction:column;gap:20px;">
-                <div><b>🏗️ Structure</b><br>Phase 1 : ${d.p1}<br>Phase 2 : ${d.p2}</div>
-                <div><b>🧮 Points</b><br>✅ Victoire : 3 pts · 🤝 Nul : 2 pts · ❌ Défaite : 0 pt</div>
-                <div><b>📊 Critères de classement (ordre strict)</b><br>1. Points totaux<br>2. Différentiel de buts<br>3. Meilleure attaque (buts marqués)<br>4. Nombre de victoires<br>5. Confrontation directe<br>6. Meilleur score 1er match de poule<br>7. Meilleur score 2 premiers matchs de poule</div>
-                ${fmt==='E'?`<div><b>🏆 Format E — Phase 2 spécifique</b><br>10 poules par rang général P1 :<br>
-                    Élite 1 (1e,8e,4e,6e) · Élite 2 (2e,7e,3e,5e)<br>
-                    Or 1 (9e,14e,12e,16e) · Or 2 (10e,13e,11e,15e)<br>
-                    Argent 1 (17e,20e,22e,24e) · Argent 2 (18e,19e,21e,23e)<br>
-                    Bronze 1 (25e,28e,30e,32e) · Bronze 2 (26e,27e,29e,31e)<br>
-                    Consolante 1 (33e,36e,38e,40e) · Consolante 2 (34e,35e,37e,39e)<br><br>
-                    Matchs de classement : 1er pool1 vs 1er pool2 = places 1&2 … 4e pool1 vs 4e pool2 = places 39&40.<br>
-                    Chaque groupe joue dans la même salle. Possibilité d'échanger des équipes entre les deux poules d'une même catégorie si elles étaient ensemble en P1.</div>`:''}
-                <div><b>🎾 Organisation</b><br>${nbSalles} salle${nbSalles>1?'s':''} · ${total} terrain${total>1?'s':''}<br>🌅 P1 → ${timeSettings.startP1} · ${timeSettings.durationP1}min<br>🍽️ Déjeuner → ${timeSettings.lunchStart} · ${timeSettings.lunchDuration}min<br>☀️ P2 → ${timeSettings.startP2||'--:--'} · ${timeSettings.durationP2}min</div>
+            // Infos terrains par salle
+            let salleInfo='';
+            for(let s=0;s<nbSalles;s++){
+                let ts=getTerrainsForSalle(s);
+                salleInfo+=`${salleNames[s]||('Salle '+(s+1))} : ${ts.length} terrain${ts.length>1?'s':''} (T${ts[0]}${ts.length>1?' à T'+ts[ts.length-1]:''})`;
+                if(s<nbSalles-1) salleInfo+=' · ';
+            }
+
+            function ruleBlock(icon,title,content){
+                return `<div style="padding:12px 14px;border-radius:12px;border:1px solid var(--border);background:var(--bg);">
+                    <div style="font-weight:800;font-size:0.82rem;margin-bottom:8px;color:var(--accent);">${icon} ${title}</div>
+                    <div style="font-size:0.78rem;line-height:1.8;color:var(--text);">${content}</div>
+                </div>`;
+            }
+            function ruleList(items){
+                return items.map((it,i)=>`<div style="display:flex;gap:8px;"><span style="font-weight:700;color:var(--accent);min-width:18px;">${i+1}.</span><span>${it}</span></div>`).join('');
+            }
+
+            area.innerHTML=`<div class="panel">
+                <div class="panel-header">📖 Règlement du Tournoi <span class="format-badge">Format ${fmt}</span></div>
+                <div class="panel-body" style="display:flex;flex-direction:column;gap:12px;">
+
+                ${ruleBlock('🏗️','Structure du tournoi',
+                    `<b>Phase 1 :</b> ${d.p1}<br><b>Phase 2 :</b> ${d.p2}`
+                )}
+
+                ${ruleBlock('🧮','Système de points',
+                    `<div style="display:flex;gap:16px;flex-wrap:wrap;">
+                        <span>✅ Victoire : <b>3 pts</b></span>
+                        <span>🤝 Match nul : <b>2 pts</b></span>
+                        <span>❌ Défaite : <b>0 pt</b></span>
+                    </div>`
+                )}
+
+                ${ruleBlock('🎾','Organisation des salles',
+                    `${salleInfo}<br>
+                    <span style="font-size:0.72rem;color:var(--text-muted);">Chaque groupe joue <b>exclusivement dans sa salle</b> pour toute la durée de la phase, en utilisant tous les terrains disponibles de cette salle.</span>`
+                )}
+
+                ${ruleBlock('🎯','Tirage au sort (Phase 1)',
+                    `Le tirage est effectué aléatoirement avec <b>300 tentatives</b> pour minimiser les rencontres entre équipes d'un même club dans le même groupe. Un avertissement est affiché si des conflits restent inévitables.`
+                )}
+
+                ${ruleBlock('📊','Classement dans les groupes (P1 et P2)',
+                    `Critères appliqués dans l'ordre strict en cas d'égalité :<br>
+                    ${ruleList([
+                        '<b>Victoires</b> (prioritaires sur les matchs nuls)',
+                        'Points totaux',
+                        'Différentiel de points',
+                        'Meilleure attaque (points marqués)',
+                        'Confrontation directe',
+                        'Meilleur score du 1er match de poule',
+                        'Meilleur score cumulé des 2 premiers matchs de poule'
+                    ])}`
+                )}
+
+                ${ruleBlock('🏅','Classement général (Class.1 & Class.2)',
+                    `Critères appliqués dans l'ordre strict en cas d'égalité :<br>
+                    ${ruleList([
+                        '<b>Place dans le groupe propre</b> — le 1er d'un groupe précède le 2e d'un autre quel que soit le nombre de points',
+                        'Points totaux (P1 + P2)',
+                        'Différentiel de points',
+                        'Meilleure attaque (points marqués)',
+                        'Nombre de victoires',
+                        'Confrontation directe (P1 ou P2)',
+                        'Meilleur score du 1er match de poule',
+                        'Meilleur score cumulé des 2 premiers matchs de poule'
+                    ])}`
+                )}
+
+                ${fmt==='E'?ruleBlock('🏆','Format E — Composition des poules P2',
+                    `Les 10 poules sont constituées d'après le classement général de la Phase 1 :<br>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin-top:6px;font-size:0.72rem;">
+                        <span>🥇 Élite 1 : 1e, 8e, 4e, 6e</span><span>🥇 Élite 2 : 2e, 7e, 3e, 5e</span>
+                        <span>🟡 Or 1 : 9e, 14e, 12e, 16e</span><span>🟡 Or 2 : 10e, 13e, 11e, 15e</span>
+                        <span>⚪ Argent 1 : 17e, 20e, 22e, 24e</span><span>⚪ Argent 2 : 18e, 19e, 21e, 23e</span>
+                        <span>🟤 Bronze 1 : 25e, 28e, 30e, 32e</span><span>🟤 Bronze 2 : 26e, 27e, 29e, 31e</span>
+                        <span>🎗️ Consol. 1 : 33e, 36e, 38e, 40e</span><span>🎗️ Consol. 2 : 34e, 35e, 37e, 39e</span>
+                    </div>
+                    <div style="margin-top:8px;font-size:0.72rem;color:var(--text-muted);">Possibilité d'échanger des équipes entre les deux poules d'une même catégorie si elles se retrouvaient ensemble en P1.</div>`
+                ):''}
+
+                ${ruleBlock('🏆','Matchs de classement (Phase finale)',
+                    `1er pool A vs 1er pool B → places 1 &amp; 2 · … · 4e pool A vs 4e pool B → places 39 &amp; 40<br>
+                    <span style="font-size:0.72rem;color:var(--text-muted);">En cas de <b>match nul</b> lors d'un match de classement, le classement général par points sur l'ensemble du tournoi (P1 + P2) départage les deux équipes. L'équipe mieux classée obtient la place haute.</span>`
+                )}
+
+                ${ruleBlock('🕐','Planning',
+                    `<b>${nbSalles} salle${nbSalles>1?'s':''}</b> · <b>${total} terrain${total>1?'s':''}</b><br>
+                    🌅 Début P1 : <b>${timeSettings.startP1}</b> · Durée : <b>${timeSettings.durationP1} min</b><br>
+                    🍽️ Déjeuner : <b>${timeSettings.lunchStart||'–'}</b> · Durée : <b>${timeSettings.lunchDuration||'–'} min</b><br>
+                    ☀️ Début P2 : <b>${timeSettings.startP2||'–'}</b> · Durée : <b>${timeSettings.durationP2} min</b>`
+                )}
+
             </div></div>`;
         }
 
