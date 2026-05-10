@@ -1020,21 +1020,24 @@
 
         // ============ CLASSEMENT FINAL ============
         function computeFinalRanking(){
-            // Après matchs de classement : le gagnant prend le rang le plus élevé
+            // Afficher dès que des matchs finaux existent (joués ou non)
             let ranking=[];
-            if(matchesFinales.length&&matchesFinales.some(isPlayed)){
-                matchesFinales.forEach(m=>{
-                    if(isPlayed(m)){
-                        let s1=getScore(m.score1),s2=getScore(m.score2);
-                        if(s1>=s2){ ranking.push({team:m.team1,finalRank:m.rank1}); ranking.push({team:m.team2,finalRank:m.rank2}); }
-                        else { ranking.push({team:m.team2,finalRank:m.rank1}); ranking.push({team:m.team1,finalRank:m.rank2}); }
-                    } else {
-                        ranking.push({team:m.team1,finalRank:m.rank1,pending:true});
-                        ranking.push({team:m.team2,finalRank:m.rank2,pending:true});
-                    }
-                });
-                ranking.sort((a,b)=>a.finalRank-b.finalRank);
-            }
+            if(!matchesFinales.length) return ranking;
+            let seen=new Set();
+            matchesFinales.forEach(m=>{
+                if(!m.team1||!m.team2) return;
+                if(isPlayed(m)){
+                    let s1=getScore(m.score1),s2=getScore(m.score2);
+                    let winner=s1>=s2?m.team1:m.team2;
+                    let loser=s1>=s2?m.team2:m.team1;
+                    if(!seen.has(winner.id)){ seen.add(winner.id); ranking.push({team:winner,finalRank:m.rank1}); }
+                    if(!seen.has(loser.id)){ seen.add(loser.id); ranking.push({team:loser,finalRank:m.rank2}); }
+                } else {
+                    if(!seen.has(m.team1.id)){ seen.add(m.team1.id); ranking.push({team:m.team1,finalRank:m.rank1,pending:true}); }
+                    if(!seen.has(m.team2.id)){ seen.add(m.team2.id); ranking.push({team:m.team2,finalRank:m.rank2,pending:true}); }
+                }
+            });
+            ranking.sort((a,b)=>a.finalRank-b.finalRank);
             return ranking;
         }
 
