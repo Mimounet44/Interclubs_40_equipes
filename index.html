@@ -319,41 +319,37 @@
         }
 
         // ============ GÉNÉRATION MATCHS P1 ============
-        function generateRoundRobin(teamsList,groupName,startId,groupIndex){
-            let n=teamsList.length, matches=[], id=startId;
-
-            // Salle fixe pour ce groupe : groupes pairs→salle 0, impairs→salle 1 (si 2 salles)
-            let salleIdx = nbSalles > 1 ? (groupIndex % nbSalles) : 0;
-            let salleTerrains = getTerrainsForSalle(salleIdx); // tableau de numéros de terrains (1-basé)
-
-            // Round-robin de Berger
-            let indices=[...Array(n).keys()];
-            if(n%2===1) indices.push(-1);
-            let allRounds=[];
-            let rounds=indices.length-1;
-            for(let round=0;round<rounds;round++){
-                let roundMatches=[];
-                for(let i=0;i<indices.length/2;i++){
-                    let a=indices[i], b=indices[indices.length-1-i];
-                    if(a!==-1&&b!==-1) roundMatches.push({team1:teamsList[a],team2:teamsList[b]});
-                }
-                allRounds.push(roundMatches);
-                indices.splice(1,0,indices.pop());
-            }
-
-            // Attribuer les terrains de la salle en rotation sur tous les matchs du groupe
-            let tc=0;
-            allRounds.forEach(roundMatches=>{
-                roundMatches.forEach(rm=>{
-                    let terrain=salleTerrains[tc % salleTerrains.length];
-                    // salleRef = salle permanente du groupe (jamais écrasée par scheduleGlobal)
-                    matches.push({id:id++, group:groupName, team1:rm.team1, team2:rm.team2,
-                                  score1:'', score2:'', terrain, salleRef:salleIdx});
-                    tc++;
-                });
-            });
-            return {matches, nextId:id};
+ function generateRoundRobin(teamsList,groupName,startId,groupIndex){
+    let n=teamsList.length, matches=[], id=startId;
+    let salleIdx = nbSalles > 1 ? (groupIndex % nbSalles) : 0;
+    let salleTerrains = getTerrainsForSalle(salleIdx);
+    
+    let indices=[...Array(n).keys()];
+    if(n%2===1) indices.push(-1);
+    let allRounds=[];
+    let rounds=indices.length-1;
+    for(let round=0;round<rounds;round++){
+        let roundMatches=[];
+        for(let i=0;i<indices.length/2;i++){
+            let a=indices[i], b=indices[indices.length-1-i];
+            if(a!==-1&&b!==-1) roundMatches.push({team1:teamsList[a],team2:teamsList[b]});
         }
+        allRounds.push(roundMatches);
+        indices.splice(1,0,indices.pop());
+    }
+
+    // Répartition sur TOUS les terrains de la salle par round-robin
+    let terrainIndex = 0;
+    allRounds.forEach(roundMatches=>{
+        roundMatches.forEach(rm=>{
+            let terrain = salleTerrains[terrainIndex % salleTerrains.length];
+            matches.push({id:id++, group:groupName, team1:rm.team1, team2:rm.team2,
+                          score1:'', score2:'', terrain, salleRef:salleIdx});
+            terrainIndex++;
+        });
+    });
+    return {matches, nextId:id};
+}
 
         function genPhase1(){
             if(!isAdmin){ showMsg("🔒 Seul l'administrateur peut générer les matchs"); return; }
@@ -371,41 +367,36 @@
         }
 
         // ============ CLASSEMENT P1 ============
-        function computeRankP1(groupName){
-            let grp=groupsP1.find(g=>g.name===groupName); if(!grp) return [];
-            let stats=grp.teams.map(t=>({team:t,pts:0,w:0,d:0,l:0,bp:0,bc:0,diff:0,matchScores:[]}));
-            // Récupérer les matchs dans l'ordre pour critères 6&7
-            let grpMatches=matchesP1.filter(m=>m.group===groupName);
-            grpMatches.forEach(m=>{
-                if(!isPlayed(m)) return;
-                let s1=getScore(m.score1),s2=getScore(m.score2);
-                let t1=stats.find(s=>s.team.id===m.team1.id), t2=stats.find(s=>s.team.id===m.team2.id);
-                if(!t1||!t2) return;
-                t1.bp+=s1; t1.bc+=s2; t2.bp+=s2; t2.bc+=s1;
-                if(s1>s2){ t1.w++;t2.l++;t1.pts+=3; } else if(s2>s1){ t2.w++;t1.l++;t2.pts+=3; } else { t1.d++;t2.d++;t1.pts+=2;t2.pts+=2; }
-                t1.matchScores.push(s1); t2.matchScores.push(s2);
-            });
-            stats.forEach(s=>{ s.diff=s.bp-s.bc; });
-            // Critères de classement : 1.pts 2.victoires (prioritaire sur nuls) 3.diff 4.bp 5.confrontation directe 6.meilleur score 1er match 7.meilleur score 2 premiers matchs
-            stats.sort((a,b)=>{
-                if(b.pts!==a.pts) return b.pts-a.pts;
-                // À égalité de points : victoires prioritaires sur nuls
-                if(b.w!==a.w) return b.w-a.w;
-                if(b.diff!==a.diff) return b.diff-a.diff;
-                if(b.bp!==a.bp) return b.bp-a.bp;
-                // confrontation directe
-                let direct=getDirectConfrontation(a.team,b.team,groupName);
-                if(direct!==0) return direct;
-                // meilleur score 1er match
-                let a1=a.matchScores[0]??-1, b1=b.matchScores[0]??-1;
-                if(b1!==a1) return b1-a1;
-                // meilleur score 2 premiers matchs
-                let a2=(a.matchScores[0]??0)+(a.matchScores[1]??0);
-                let b2=(b.matchScores[0]??0)+(b.matchScores[1]??0);
-                return b2-a2;
-            });
-            return stats;
-        }
+ function computeRankP1(groupName){
+    let grp=groupsP1.find(g=>g.name===groupName); if(!grp) return [];
+    let stats=grp.teams.map(t=>({team:t,pts:0,w:0,d:0,l:0,bp:0,bc:0,diff:0,matchScores:[]}));
+    let grpMatches=matchesP1.filter(m=>m.group===groupName);
+    grpMatches.forEach(m=>{
+        if(!isPlayed(m)) return;
+        let s1=getScore(m.score1),s2=getScore(m.score2);
+        let t1=stats.find(s=>s.team.id===m.team1.id), t2=stats.find(s=>s.team.id===m.team2.id);
+        if(!t1||!t2) return;
+        t1.bp+=s1; t1.bc+=s2; t2.bp+=s2; t2.bc+=s1;
+        if(s1>s2){ t1.w++;t2.l++;t1.pts+=3; } else if(s2>s1){ t2.w++;t1.l++;t2.pts+=3; } else { t1.d++;t2.d++;t1.pts+=2;t2.pts+=2; }
+        t1.matchScores.push(s1); t2.matchScores.push(s2);
+    });
+    stats.forEach(s=>{ s.diff=s.bp-s.bc; });
+    // Nouvel ordre : 1.pts 2.diff 3.bp 4.wins 5.confrontation directe 6.meilleur score 1er match 7.meilleur score 2 premiers matchs
+    stats.sort((a,b)=>{
+        if(b.pts!==a.pts) return b.pts-a.pts;
+        if(b.diff!==a.diff) return b.diff-a.diff;
+        if(b.bp!==a.bp) return b.bp-a.bp;
+        if(b.w!==a.w) return b.w-a.w;
+        let direct=getDirectConfrontation(a.team,b.team,groupName);
+        if(direct!==0) return direct;
+        let a1=a.matchScores[0]??-1, b1=b.matchScores[0]??-1;
+        if(b1!==a1) return b1-a1;
+        let a2=(a.matchScores[0]??0)+(a.matchScores[1]??0);
+        let b2=(b.matchScores[0]??0)+(b.matchScores[1]??0);
+        return b2-a2;
+    });
+    return stats;
+}
 
         function getDirectConfrontation(teamA,teamB,groupName){
             let m=matchesP1.find(m=>m.group===groupName&&((m.team1.id===teamA.id&&m.team2.id===teamB.id)||(m.team1.id===teamB.id&&m.team2.id===teamA.id)));
@@ -702,62 +693,64 @@
             return conflicts;
         }
 
-        function genMatchesFromGroupsE(){
-            matchesP2=[];
-            let nextId=1;
-            for(let idx=0;idx<groupsP2E.length;idx++){
-                let grp=groupsP2E[idx];
-                if(!grp.teams.length) continue;
-                // Attribution salle : paires de poules dans la même salle
-                let pairIdx=Math.floor(idx/2); // 0=ELITE, 1=OR, 2=ARGENT, 3=BRONZE, 4=CONSOL
-                let salleIdx=nbSalles>1?(pairIdx%nbSalles):0;
-                let terrainsS=getTerrainsForSalle(salleIdx);
-                let baseTerrain=terrainsS[Math.min(idx%2,terrainsS.length-1)];
-                let n=grp.teams.length, indices=[...Array(n).keys()];
-                if(n%2===1) indices.push(-1);
-                let rounds=indices.length-1;
-                for(let round=0;round<rounds;round++){
-                    for(let i=0;i<indices.length/2;i++){
-                        let a=indices[i], b=indices[indices.length-1-i];
-                        if(a!==-1&&b!==-1) matchesP2.push({id:nextId++,category:grp.category,groupName:grp.name,team1:grp.teams[a],team2:grp.teams[b],score1:'',score2:'',terrain:baseTerrain,salleIdx,isFormatE:true});
-                    }
-                    indices.splice(1,0,indices.pop());
+function genMatchesFromGroupsE(){
+    matchesP2=[];
+    let nextId=1;
+    for(let idx=0;idx<groupsP2E.length;idx++){
+        let grp=groupsP2E[idx];
+        if(!grp.teams.length) continue;
+        let pairIdx=Math.floor(idx/2);
+        let salleIdx=nbSalles>1?(pairIdx%nbSalles):0;
+        let terrainsS=getTerrainsForSalle(salleIdx);
+        let n=grp.teams.length, indices=[...Array(n).keys()];
+        if(n%2===1) indices.push(-1);
+        let rounds=indices.length-1;
+        let terrainIdx=0;
+        for(let round=0;round<rounds;round++){
+            for(let i=0;i<indices.length/2;i++){
+                let a=indices[i], b=indices[indices.length-1-i];
+                if(a!==-1&&b!==-1){
+                    let terrain=terrainsS[terrainIdx % terrainsS.length];
+                    matchesP2.push({id:nextId++, category:grp.category, groupName:grp.name, team1:grp.teams[a], team2:grp.teams[b], score1:'', score2:'', terrain, salleIdx, isFormatE:true});
+                    terrainIdx++;
                 }
             }
+            indices.splice(1,0,indices.pop());
         }
+    }
+}
 
         // ============ UI PHASE 2 ============
-        function computePhase2Rank(groupName){
-            let mArr=matchesP2.filter(m=>m.groupName===groupName);
-            let teamIds=new Set(); mArr.forEach(m=>{ if(m.team1) teamIds.add(m.team1.id); if(m.team2) teamIds.add(m.team2.id); });
-            let stats=Array.from(teamIds).map(tid=>{ let t=teams.find(t=>t.id===tid); return {team:t,pts:0,w:0,d:0,l:0,bp:0,bc:0,diff:0,matchScores:[]}; });
-            mArr.forEach(m=>{
-                if(!isPlayed(m)) return;
-                let s1=getScore(m.score1),s2=getScore(m.score2);
-                let t1=stats.find(s=>s.team?.id===m.team1?.id), t2=stats.find(s=>s.team?.id===m.team2?.id);
-                if(!t1||!t2) return;
-                t1.bp+=s1;t1.bc+=s2;t2.bp+=s2;t2.bc+=s1;
-                if(s1>s2){t1.w++;t2.l++;t1.pts+=3;}else if(s2>s1){t2.w++;t1.l++;t2.pts+=3;}else{t1.d++;t2.d++;t1.pts+=2;t2.pts+=2;}
-                t1.matchScores.push(s1);t2.matchScores.push(s2);
-            });
-            stats.forEach(s=>s.diff=s.bp-s.bc);
-            // Critères : 1.pts 2.victoires (prioritaire sur nuls) 3.diff 4.bp 5.confrontation directe 6.meilleur score 1er match 7.meilleur score 2 premiers matchs
-            stats.sort((a,b)=>{
-                if(b.pts!==a.pts) return b.pts-a.pts;
-                // À égalité de points : victoires prioritaires sur nuls
-                if(b.w!==a.w) return b.w-a.w;
-                if(b.diff!==a.diff) return b.diff-a.diff;
-                if(b.bp!==a.bp) return b.bp-a.bp;
-                let dm=getDirectConfrontationP2(a.team,b.team,groupName);
-                if(dm!==0) return dm;
-                let a1=a.matchScores[0]??-1,b1=b.matchScores[0]??-1;
-                if(b1!==a1) return b1-a1;
-                let a2=(a.matchScores[0]??0)+(a.matchScores[1]??0);
-                let b2=(b.matchScores[0]??0)+(b.matchScores[1]??0);
-                return b2-a2;
-            });
-            return stats;
-        }
+function computePhase2Rank(groupName){
+    let mArr=matchesP2.filter(m=>m.groupName===groupName);
+    let teamIds=new Set(); mArr.forEach(m=>{ if(m.team1) teamIds.add(m.team1.id); if(m.team2) teamIds.add(m.team2.id); });
+    let stats=Array.from(teamIds).map(tid=>{ let t=teams.find(t=>t.id===tid); return {team:t,pts:0,w:0,d:0,l:0,bp:0,bc:0,diff:0,matchScores:[]}; });
+    mArr.forEach(m=>{
+        if(!isPlayed(m)) return;
+        let s1=getScore(m.score1),s2=getScore(m.score2);
+        let t1=stats.find(s=>s.team?.id===m.team1?.id), t2=stats.find(s=>s.team?.id===m.team2?.id);
+        if(!t1||!t2) return;
+        t1.bp+=s1;t1.bc+=s2;t2.bp+=s2;t2.bc+=s1;
+        if(s1>s2){t1.w++;t2.l++;t1.pts+=3;}else if(s2>s1){t2.w++;t1.l++;t2.pts+=3;}else{t1.d++;t2.d++;t1.pts+=2;t2.pts+=2;}
+        t1.matchScores.push(s1);t2.matchScores.push(s2);
+    });
+    stats.forEach(s=>s.diff=s.bp-s.bc);
+    // Nouvel ordre : 1.pts 2.diff 3.bp 4.wins 5.confrontation directe 6.meilleur score 1er match 7.meilleur score 2 premiers matchs
+    stats.sort((a,b)=>{
+        if(b.pts!==a.pts) return b.pts-a.pts;
+        if(b.diff!==a.diff) return b.diff-a.diff;
+        if(b.bp!==a.bp) return b.bp-a.bp;
+        if(b.w!==a.w) return b.w-a.w;
+        let dm=getDirectConfrontationP2(a.team,b.team,groupName);
+        if(dm!==0) return dm;
+        let a1=a.matchScores[0]??-1,b1=b.matchScores[0]??-1;
+        if(b1!==a1) return b1-a1;
+        let a2=(a.matchScores[0]??0)+(a.matchScores[1]??0);
+        let b2=(b.matchScores[0]??0)+(b.matchScores[1]??0);
+        return b2-a2;
+    });
+    return stats;
+}
 
         function getDirectConfrontationP2(teamA,teamB,groupName){
             let m=matchesP2.find(m=>m.groupName===groupName&&((m.team1?.id===teamA?.id&&m.team2?.id===teamB?.id)||(m.team1?.id===teamB?.id&&m.team2?.id===teamA?.id)));
@@ -1544,69 +1537,85 @@ window._smNav=function(idx){ _smSectionIdx=idx; renderScoreModal(); };
             readTimeSettings();
             let total=getTotalTerrains();
 
-            function scheduleGlobal(matchList,startTimeStr,duration,pause){
-                if(!matchList.length) return;
-                let slotDur=duration+pause, startMin=timeToMin(startTimeStr);
-                matchList.forEach(m=>m.startTime='');
-
-                // salleRef est la salle fixe du groupe (définie à la génération, jamais modifiée)
-                function getMatchSalle(m){
-                    if(m.salleRef!=null) return m.salleRef;
-                    if(m.terrain) return getSalleForTerrain(m.terrain);
-                    return 0;
-                }
-
-                let remaining=[...matchList], wave=0, busyInPrevWave=new Set(), lastPlayedWave={};
-                while(remaining.length>0){
-                    let waveTime=startMin+wave*slotDur;
-                    let busyInWave=new Set(), waveMatches=[];
-                    let busyTerrains=new Set();
-                    let placed=true;
-                    while(placed){
-                        placed=false;
-                        let candidates=remaining.filter(m=>
-                            !busyInPrevWave.has(m.team1?.id)&&!busyInPrevWave.has(m.team2?.id)&&
-                            !busyInWave.has(m.team1?.id)&&!busyInWave.has(m.team2?.id)
-                        );
-                        if(!candidates.length) candidates=remaining.filter(m=>
-                            !busyInWave.has(m.team1?.id)&&!busyInWave.has(m.team2?.id)
-                        );
-                        if(!candidates.length) break;
-                        candidates.sort((a,b)=>{
-                            let lastA=Math.max(lastPlayedWave[a.team1?.id]??-99,lastPlayedWave[a.team2?.id]??-99);
-                            let lastB=Math.max(lastPlayedWave[b.team1?.id]??-99,lastPlayedWave[b.team2?.id]??-99);
-                            return lastA-lastB;
-                        });
-                        // Trouver un terrain libre dans la salle du candidat (salleRef respectée)
-                        let chosen=null, chosenTerrain=null;
-                        for(let cand of candidates){
-                            let salle=getMatchSalle(cand);
-                            let terrains=getTerrainsForSalle(salle);
-                            let free=terrains.find(t=>!busyTerrains.has(t));
-                            if(free!=null){ chosen=cand; chosenTerrain=free; break; }
-                        }
-                        if(!chosen) break;
-                        remaining.splice(remaining.indexOf(chosen),1);
-                        chosen.startTime=minToTime(waveTime);
-                        chosen.terrain=chosenTerrain;
-                        busyInWave.add(chosen.team1?.id); busyInWave.add(chosen.team2?.id);
-                        busyTerrains.add(chosenTerrain);
-                        lastPlayedWave[chosen.team1?.id]=wave; lastPlayedWave[chosen.team2?.id]=wave;
-                        waveMatches.push(chosen);
-                        placed=true;
-                    }
-                    busyInPrevWave=busyInWave;
-                    if(!waveMatches.length&&remaining.length){
-                        let m=remaining.shift();
-                        let terrains=getTerrainsForSalle(getMatchSalle(m));
-                        m.startTime=minToTime(waveTime);
-                        m.terrain=terrains[0]||1;
-                        busyInPrevWave=new Set([m.team1?.id,m.team2?.id]);
-                        lastPlayedWave[m.team1?.id]=wave; lastPlayedWave[m.team2?.id]=wave;
-                    }
-                    wave++;
+function scheduleGlobal(matchList,startTimeStr,duration,pause){
+    if(!matchList.length) return;
+    let slotDur=duration+pause, startMin=timeToMin(startTimeStr);
+    matchList.forEach(m=>m.startTime='');
+    
+    function getMatchSalle(m){
+        if(m.salleRef!=null) return m.salleRef;
+        if(m.terrain) return getSalleForTerrain(m.terrain);
+        return 0;
+    }
+    
+    let remaining=[...matchList];
+    let wave=0;
+    let lastPlayedWave={};
+    
+    while(remaining.length>0){
+        let waveTime=startMin+wave*slotDur;
+        let busyInWave=new Set(); // équipes déjà programmées dans cette vague
+        let busyTerrainsPerSalle={}; // terrains occupés par salle
+        for(let s=0;s<nbSalles;s++) busyTerrainsPerSalle[s]=new Set();
+        let waveMatches=[];
+        
+        // Prendre tous les matchs qui n'ont pas d'équipes déjà programmées dans cette vague
+        let candidates=remaining.filter(m=>
+            !busyInWave.has(m.team1?.id) && !busyInWave.has(m.team2?.id)
+        );
+        
+        // Trier par ancienneté (équipes qui ont joué le plus tôt en priorité)
+        candidates.sort((a,b)=>{
+            let lastA=Math.max(lastPlayedWave[a.team1?.id]??-99,lastPlayedWave[a.team2?.id]??-99);
+            let lastB=Math.max(lastPlayedWave[b.team1?.id]??-99,lastPlayedWave[b.team2?.id]??-99);
+            return lastA-lastB;
+        });
+        
+        // Remplir la vague en maximisant le nombre de matchs simultanés
+        for(let cand of candidates){
+            let salle=getMatchSalle(cand);
+            let terrainsS=getTerrainsForSalle(salle);
+            // Chercher un terrain libre dans cette salle
+            let freeTerrain=null;
+            for(let t of terrainsS){
+                if(!busyTerrainsPerSalle[salle].has(t)){
+                    freeTerrain=t;
+                    break;
                 }
             }
+            if(freeTerrain){
+                cand.startTime=minToTime(waveTime);
+                cand.terrain=freeTerrain;
+                busyInWave.add(cand.team1?.id);
+                busyInWave.add(cand.team2?.id);
+                busyTerrainsPerSalle[salle].add(freeTerrain);
+                waveMatches.push(cand);
+                // Supprimer de remaining
+                let idx=remaining.findIndex(r=>r===cand);
+                if(idx!==-1) remaining.splice(idx,1);
+            }
+        }
+        
+        // Mettre à jour lastPlayedWave
+        waveMatches.forEach(m=>{
+            lastPlayedWave[m.team1?.id]=wave;
+            lastPlayedWave[m.team2?.id]=wave;
+        });
+        
+        // Si aucun match n'a pu être placé mais qu'il reste des matchs, on force un placement
+        if(waveMatches.length===0 && remaining.length>0){
+            let m=remaining.shift();
+            let salle=getMatchSalle(m);
+            let terrainsS=getTerrainsForSalle(salle);
+            m.startTime=minToTime(waveTime);
+            m.terrain=terrainsS[0];
+            lastPlayedWave[m.team1?.id]=wave;
+            lastPlayedWave[m.team2?.id]=wave;
+            waveMatches.push(m);
+        }
+        wave++;
+    }
+}
 
             scheduleGlobal(matchesP1,timeSettings.startP1,timeSettings.durationP1,timeSettings.breakP1);
             let p1End=0; matchesP1.forEach(m=>{ if(m.startTime) p1End=Math.max(p1End,timeToMin(m.startTime)+timeSettings.durationP1); });
