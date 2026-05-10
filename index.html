@@ -319,37 +319,41 @@
         }
 
         // ============ GÉNÉRATION MATCHS P1 ============
- function generateRoundRobin(teamsList,groupName,startId,groupIndex){
-    let n=teamsList.length, matches=[], id=startId;
-    let salleIdx = nbSalles > 1 ? (groupIndex % nbSalles) : 0;
-    let salleTerrains = getTerrainsForSalle(salleIdx);
-    
-    let indices=[...Array(n).keys()];
-    if(n%2===1) indices.push(-1);
-    let allRounds=[];
-    let rounds=indices.length-1;
-    for(let round=0;round<rounds;round++){
-        let roundMatches=[];
-        for(let i=0;i<indices.length/2;i++){
-            let a=indices[i], b=indices[indices.length-1-i];
-            if(a!==-1&&b!==-1) roundMatches.push({team1:teamsList[a],team2:teamsList[b]});
-        }
-        allRounds.push(roundMatches);
-        indices.splice(1,0,indices.pop());
-    }
+        function generateRoundRobin(teamsList,groupName,startId,groupIndex){
+            let n=teamsList.length, matches=[], id=startId;
 
-    // Répartition sur TOUS les terrains de la salle par round-robin
-    let terrainIndex = 0;
-    allRounds.forEach(roundMatches=>{
-        roundMatches.forEach(rm=>{
-            let terrain = salleTerrains[terrainIndex % salleTerrains.length];
-            matches.push({id:id++, group:groupName, team1:rm.team1, team2:rm.team2,
-                          score1:'', score2:'', terrain, salleRef:salleIdx});
-            terrainIndex++;
-        });
-    });
-    return {matches, nextId:id};
-}
+            // Salle fixe pour ce groupe : groupes pairs→salle 0, impairs→salle 1 (si 2 salles)
+            let salleIdx = nbSalles > 1 ? (groupIndex % nbSalles) : 0;
+            let salleTerrains = getTerrainsForSalle(salleIdx); // tableau de numéros de terrains (1-basé)
+
+            // Round-robin de Berger
+            let indices=[...Array(n).keys()];
+            if(n%2===1) indices.push(-1);
+            let allRounds=[];
+            let rounds=indices.length-1;
+            for(let round=0;round<rounds;round++){
+                let roundMatches=[];
+                for(let i=0;i<indices.length/2;i++){
+                    let a=indices[i], b=indices[indices.length-1-i];
+                    if(a!==-1&&b!==-1) roundMatches.push({team1:teamsList[a],team2:teamsList[b]});
+                }
+                allRounds.push(roundMatches);
+                indices.splice(1,0,indices.pop());
+            }
+
+            // Attribuer les terrains de la salle en rotation sur tous les matchs du groupe
+            let tc=0;
+            allRounds.forEach(roundMatches=>{
+                roundMatches.forEach(rm=>{
+                    let terrain=salleTerrains[tc % salleTerrains.length];
+                    // salleRef = salle permanente du groupe (jamais écrasée par scheduleGlobal)
+                    matches.push({id:id++, group:groupName, team1:rm.team1, team2:rm.team2,
+                                  score1:'', score2:'', terrain, salleRef:salleIdx});
+                    tc++;
+                });
+            });
+            return {matches, nextId:id};
+        }
 
         function genPhase1(){
             if(!isAdmin){ showMsg("🔒 Seul l'administrateur peut générer les matchs"); return; }
@@ -367,36 +371,41 @@
         }
 
         // ============ CLASSEMENT P1 ============
- function computeRankP1(groupName){
-    let grp=groupsP1.find(g=>g.name===groupName); if(!grp) return [];
-    let stats=grp.teams.map(t=>({team:t,pts:0,w:0,d:0,l:0,bp:0,bc:0,diff:0,matchScores:[]}));
-    let grpMatches=matchesP1.filter(m=>m.group===groupName);
-    grpMatches.forEach(m=>{
-        if(!isPlayed(m)) return;
-        let s1=getScore(m.score1),s2=getScore(m.score2);
-        let t1=stats.find(s=>s.team.id===m.team1.id), t2=stats.find(s=>s.team.id===m.team2.id);
-        if(!t1||!t2) return;
-        t1.bp+=s1; t1.bc+=s2; t2.bp+=s2; t2.bc+=s1;
-        if(s1>s2){ t1.w++;t2.l++;t1.pts+=3; } else if(s2>s1){ t2.w++;t1.l++;t2.pts+=3; } else { t1.d++;t2.d++;t1.pts+=2;t2.pts+=2; }
-        t1.matchScores.push(s1); t2.matchScores.push(s2);
-    });
-    stats.forEach(s=>{ s.diff=s.bp-s.bc; });
-    // Nouvel ordre : 1.pts 2.diff 3.bp 4.wins 5.confrontation directe 6.meilleur score 1er match 7.meilleur score 2 premiers matchs
-    stats.sort((a,b)=>{
-        if(b.pts!==a.pts) return b.pts-a.pts;
-        if(b.diff!==a.diff) return b.diff-a.diff;
-        if(b.bp!==a.bp) return b.bp-a.bp;
-        if(b.w!==a.w) return b.w-a.w;
-        let direct=getDirectConfrontation(a.team,b.team,groupName);
-        if(direct!==0) return direct;
-        let a1=a.matchScores[0]??-1, b1=b.matchScores[0]??-1;
-        if(b1!==a1) return b1-a1;
-        let a2=(a.matchScores[0]??0)+(a.matchScores[1]??0);
-        let b2=(b.matchScores[0]??0)+(b.matchScores[1]??0);
-        return b2-a2;
-    });
-    return stats;
-}
+        function computeRankP1(groupName){
+            let grp=groupsP1.find(g=>g.name===groupName); if(!grp) return [];
+            let stats=grp.teams.map(t=>({team:t,pts:0,w:0,d:0,l:0,bp:0,bc:0,diff:0,matchScores:[]}));
+            // Récupérer les matchs dans l'ordre pour critères 6&7
+            let grpMatches=matchesP1.filter(m=>m.group===groupName);
+            grpMatches.forEach(m=>{
+                if(!isPlayed(m)) return;
+                let s1=getScore(m.score1),s2=getScore(m.score2);
+                let t1=stats.find(s=>s.team.id===m.team1.id), t2=stats.find(s=>s.team.id===m.team2.id);
+                if(!t1||!t2) return;
+                t1.bp+=s1; t1.bc+=s2; t2.bp+=s2; t2.bc+=s1;
+                if(s1>s2){ t1.w++;t2.l++;t1.pts+=3; } else if(s2>s1){ t2.w++;t1.l++;t2.pts+=3; } else { t1.d++;t2.d++;t1.pts+=2;t2.pts+=2; }
+                t1.matchScores.push(s1); t2.matchScores.push(s2);
+            });
+            stats.forEach(s=>{ s.diff=s.bp-s.bc; });
+            // Critères de classement : 1.pts 2.victoires (prioritaire sur nuls) 3.diff 4.bp 5.confrontation directe 6.meilleur score 1er match 7.meilleur score 2 premiers matchs
+            stats.sort((a,b)=>{
+                if(b.pts!==a.pts) return b.pts-a.pts;
+                // À égalité de points : victoires prioritaires sur nuls
+                if(b.w!==a.w) return b.w-a.w;
+                if(b.diff!==a.diff) return b.diff-a.diff;
+                if(b.bp!==a.bp) return b.bp-a.bp;
+                // confrontation directe
+                let direct=getDirectConfrontation(a.team,b.team,groupName);
+                if(direct!==0) return direct;
+                // meilleur score 1er match
+                let a1=a.matchScores[0]??-1, b1=b.matchScores[0]??-1;
+                if(b1!==a1) return b1-a1;
+                // meilleur score 2 premiers matchs
+                let a2=(a.matchScores[0]??0)+(a.matchScores[1]??0);
+                let b2=(b.matchScores[0]??0)+(b.matchScores[1]??0);
+                return b2-a2;
+            });
+            return stats;
+        }
 
         function getDirectConfrontation(teamA,teamB,groupName){
             let m=matchesP1.find(m=>m.group===groupName&&((m.team1.id===teamA.id&&m.team2.id===teamB.id)||(m.team1.id===teamB.id&&m.team2.id===teamA.id)));
@@ -526,19 +535,13 @@
             const area=document.getElementById('rankingP1Area'); if(!area) return;
             if(!groupsP1.length||!matchesP1.length){ area.innerHTML='<div class="panel"><div class="panel-body" style="color:var(--text-muted);">Générez la Phase 1 d\'abord.</div></div>'; return; }
             let all=[];
-            for(let grp of groupsP1){ 
-                let rank=computeRankP1(grp.name); 
-                rank.forEach((r,idx)=>{ 
-                    all.push({team:r.team, pts:r.pts, diff:r.diff, bp:r.bp, wins:r.w, draws:r.d, losses:r.l, groupName:grp.name, groupPos:idx+1}); 
-                }); 
-            }
+            for(let grp of groupsP1){ let rank=computeRankP1(grp.name); rank.forEach(r=>{ all.push({team:r.team,pts:r.pts,diff:r.diff,bp:r.bp,wins:r.w,draws:r.d,losses:r.l}); }); }
             all.sort((a,b)=>b.pts-a.pts||b.wins-a.wins||b.diff-a.diff||b.bp-a.bp);
             let html=`<div class="panel"><div class="panel-header">📊 Classement général Phase 1</div><div class="panel-body">
-            <table class="ranking-table"><thead><tr><th>Rang</th><th>Club</th><th>Joueurs</th><th>Place/Groupe</th><th>Pts</th><th>Diff</th><th>BP</th><th>V/N/D</th></tr></thead><tbody>`;
+            <table class="ranking-table"><thead><tr><th>Rang</th><th>Club</th><th>Joueurs</th><th>Pts</th><th>Diff</th><th>BP</th><th>V/N/D</th></tr></thead><tbody>`;
             all.forEach((r,idx)=>{
                 let medals=['🥇','🥈','🥉'];
-                let groupInfo = `#${r.groupPos} (Groupe ${r.groupName})`;
-                html+=`<tr class="rank-${idx+1}"><td class="rank-num">${medals[idx]||idx+1}</td><td><b>${esc(r.team.club)}</b></td><td style="font-size:0.62rem;color:var(--text-muted)">${esc(r.team.player1)}<br>${esc(r.team.player2)}</td><td style="font-size:0.7rem;color:var(--accent);font-weight:600;">${groupInfo}</td><td><b>${r.pts}</b></td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${r.diff>0?'+':''}${r.diff}</td><td>${r.bp}</td><td style="color:var(--text-muted)">${r.wins}/${r.draws}/${r.losses}</td></tr>`;
+                html+=`<tr class="rank-${idx+1}"><td class="rank-num">${medals[idx]||idx+1}</td><td><b>${esc(r.team.club)}</b></td><td style="font-size:0.62rem;color:var(--text-muted)">${esc(r.team.player1)}<br>${esc(r.team.player2)}</td><td><b>${r.pts}</b></td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${r.diff>0?'+':''}${r.diff}</td><td>${r.bp}</td><td style="color:var(--text-muted)">${r.wins}/${r.draws}/${r.losses}</td></tr>`;
             });
             html+=`</tbody></table></div></div>`;
             area.innerHTML=html;
@@ -693,64 +696,62 @@
             return conflicts;
         }
 
-function genMatchesFromGroupsE(){
-    matchesP2=[];
-    let nextId=1;
-    for(let idx=0;idx<groupsP2E.length;idx++){
-        let grp=groupsP2E[idx];
-        if(!grp.teams.length) continue;
-        let pairIdx=Math.floor(idx/2);
-        let salleIdx=nbSalles>1?(pairIdx%nbSalles):0;
-        let terrainsS=getTerrainsForSalle(salleIdx);
-        let n=grp.teams.length, indices=[...Array(n).keys()];
-        if(n%2===1) indices.push(-1);
-        let rounds=indices.length-1;
-        let terrainIdx=0;
-        for(let round=0;round<rounds;round++){
-            for(let i=0;i<indices.length/2;i++){
-                let a=indices[i], b=indices[indices.length-1-i];
-                if(a!==-1&&b!==-1){
-                    let terrain=terrainsS[terrainIdx % terrainsS.length];
-                    matchesP2.push({id:nextId++, category:grp.category, groupName:grp.name, team1:grp.teams[a], team2:grp.teams[b], score1:'', score2:'', terrain, salleIdx, isFormatE:true});
-                    terrainIdx++;
+        function genMatchesFromGroupsE(){
+            matchesP2=[];
+            let nextId=1;
+            for(let idx=0;idx<groupsP2E.length;idx++){
+                let grp=groupsP2E[idx];
+                if(!grp.teams.length) continue;
+                // Attribution salle : paires de poules dans la même salle
+                let pairIdx=Math.floor(idx/2); // 0=ELITE, 1=OR, 2=ARGENT, 3=BRONZE, 4=CONSOL
+                let salleIdx=nbSalles>1?(pairIdx%nbSalles):0;
+                let terrainsS=getTerrainsForSalle(salleIdx);
+                let baseTerrain=terrainsS[Math.min(idx%2,terrainsS.length-1)];
+                let n=grp.teams.length, indices=[...Array(n).keys()];
+                if(n%2===1) indices.push(-1);
+                let rounds=indices.length-1;
+                for(let round=0;round<rounds;round++){
+                    for(let i=0;i<indices.length/2;i++){
+                        let a=indices[i], b=indices[indices.length-1-i];
+                        if(a!==-1&&b!==-1) matchesP2.push({id:nextId++,category:grp.category,groupName:grp.name,team1:grp.teams[a],team2:grp.teams[b],score1:'',score2:'',terrain:baseTerrain,salleIdx,isFormatE:true});
+                    }
+                    indices.splice(1,0,indices.pop());
                 }
             }
-            indices.splice(1,0,indices.pop());
         }
-    }
-}
 
         // ============ UI PHASE 2 ============
-function computePhase2Rank(groupName){
-    let mArr=matchesP2.filter(m=>m.groupName===groupName);
-    let teamIds=new Set(); mArr.forEach(m=>{ if(m.team1) teamIds.add(m.team1.id); if(m.team2) teamIds.add(m.team2.id); });
-    let stats=Array.from(teamIds).map(tid=>{ let t=teams.find(t=>t.id===tid); return {team:t,pts:0,w:0,d:0,l:0,bp:0,bc:0,diff:0,matchScores:[]}; });
-    mArr.forEach(m=>{
-        if(!isPlayed(m)) return;
-        let s1=getScore(m.score1),s2=getScore(m.score2);
-        let t1=stats.find(s=>s.team?.id===m.team1?.id), t2=stats.find(s=>s.team?.id===m.team2?.id);
-        if(!t1||!t2) return;
-        t1.bp+=s1;t1.bc+=s2;t2.bp+=s2;t2.bc+=s1;
-        if(s1>s2){t1.w++;t2.l++;t1.pts+=3;}else if(s2>s1){t2.w++;t1.l++;t2.pts+=3;}else{t1.d++;t2.d++;t1.pts+=2;t2.pts+=2;}
-        t1.matchScores.push(s1);t2.matchScores.push(s2);
-    });
-    stats.forEach(s=>s.diff=s.bp-s.bc);
-    // Nouvel ordre : 1.pts 2.diff 3.bp 4.wins 5.confrontation directe 6.meilleur score 1er match 7.meilleur score 2 premiers matchs
-    stats.sort((a,b)=>{
-        if(b.pts!==a.pts) return b.pts-a.pts;
-        if(b.diff!==a.diff) return b.diff-a.diff;
-        if(b.bp!==a.bp) return b.bp-a.bp;
-        if(b.w!==a.w) return b.w-a.w;
-        let dm=getDirectConfrontationP2(a.team,b.team,groupName);
-        if(dm!==0) return dm;
-        let a1=a.matchScores[0]??-1,b1=b.matchScores[0]??-1;
-        if(b1!==a1) return b1-a1;
-        let a2=(a.matchScores[0]??0)+(a.matchScores[1]??0);
-        let b2=(b.matchScores[0]??0)+(b.matchScores[1]??0);
-        return b2-a2;
-    });
-    return stats;
-}
+        function computePhase2Rank(groupName){
+            let mArr=matchesP2.filter(m=>m.groupName===groupName);
+            let teamIds=new Set(); mArr.forEach(m=>{ if(m.team1) teamIds.add(m.team1.id); if(m.team2) teamIds.add(m.team2.id); });
+            let stats=Array.from(teamIds).map(tid=>{ let t=teams.find(t=>t.id===tid); return {team:t,pts:0,w:0,d:0,l:0,bp:0,bc:0,diff:0,matchScores:[]}; });
+            mArr.forEach(m=>{
+                if(!isPlayed(m)) return;
+                let s1=getScore(m.score1),s2=getScore(m.score2);
+                let t1=stats.find(s=>s.team?.id===m.team1?.id), t2=stats.find(s=>s.team?.id===m.team2?.id);
+                if(!t1||!t2) return;
+                t1.bp+=s1;t1.bc+=s2;t2.bp+=s2;t2.bc+=s1;
+                if(s1>s2){t1.w++;t2.l++;t1.pts+=3;}else if(s2>s1){t2.w++;t1.l++;t2.pts+=3;}else{t1.d++;t2.d++;t1.pts+=2;t2.pts+=2;}
+                t1.matchScores.push(s1);t2.matchScores.push(s2);
+            });
+            stats.forEach(s=>s.diff=s.bp-s.bc);
+            // Critères : 1.pts 2.victoires (prioritaire sur nuls) 3.diff 4.bp 5.confrontation directe 6.meilleur score 1er match 7.meilleur score 2 premiers matchs
+            stats.sort((a,b)=>{
+                if(b.pts!==a.pts) return b.pts-a.pts;
+                // À égalité de points : victoires prioritaires sur nuls
+                if(b.w!==a.w) return b.w-a.w;
+                if(b.diff!==a.diff) return b.diff-a.diff;
+                if(b.bp!==a.bp) return b.bp-a.bp;
+                let dm=getDirectConfrontationP2(a.team,b.team,groupName);
+                if(dm!==0) return dm;
+                let a1=a.matchScores[0]??-1,b1=b.matchScores[0]??-1;
+                if(b1!==a1) return b1-a1;
+                let a2=(a.matchScores[0]??0)+(a.matchScores[1]??0);
+                let b2=(b.matchScores[0]??0)+(b.matchScores[1]??0);
+                return b2-a2;
+            });
+            return stats;
+        }
 
         function getDirectConfrontationP2(teamA,teamB,groupName){
             let m=matchesP2.find(m=>m.groupName===groupName&&((m.team1?.id===teamA?.id&&m.team2?.id===teamB?.id)||(m.team1?.id===teamB?.id&&m.team2?.id===teamA?.id)));
@@ -778,11 +779,10 @@ function computePhase2Rank(groupName){
                 catGroups.forEach(([gName])=>{
                     let rank=computePhase2Rank(gName);
                     html+=`<div class="group-card"><div class="group-title" style="color:${color};">📊 ${gName}</div>
-                    <table class="ranking-table" style="margin:0;"><thead><tr><th>#</th><th>Club</th><th>Place/Groupe</th><th>Pts</th><th>V/N/D</th><th>BP:BC</th><th>Diff</th></tr></thead><tbody>`;
+                    <table class="ranking-table" style="margin:0;"><thead><tr><th>#</th><th>Club</th><th>Pts</th><th>V/N/D</th><th>BP:BC</th><th>Diff</th></tr></thead><tbody>`;
                     rank.forEach((r,idx)=>{
                         let medals=['🥇','🥈','🥉','4️⃣','5️⃣'];
-                        let groupInfo = `#${idx+1}`;
-                        html+=`<tr class="rank-${idx+1}"><td class="rank-num">${medals[idx]||idx+1}</td><td><b>${esc(r.team?.club||'?')}</b><br><span style="font-size:0.6rem;color:var(--text-muted)">${esc(r.team?.player1||'')}·${esc(r.team?.player2||'')}</span></td><td style="font-size:0.7rem;color:var(--accent);font-weight:600;">${groupInfo}</td><td><b>${r.pts}</b></td><td style="color:var(--text-muted)">${r.w}/${r.d}/${r.l}</td><td style="color:var(--text-muted)">${r.bp}:${r.bc}</td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${r.diff>0?'+':''}${r.diff}</td></tr>`;
+                        html+=`<tr class="rank-${idx+1}"><td class="rank-num">${medals[idx]||idx+1}</td><td><b>${esc(r.team?.club||'?')}</b><br><span style="font-size:0.6rem;color:var(--text-muted)">${esc(r.team?.player1||'')}·${esc(r.team?.player2||'')}</span></td><td><b>${r.pts}</b></td><td style="color:var(--text-muted)">${r.w}/${r.d}/${r.l}</td><td style="color:var(--text-muted)">${r.bp}:${r.bc}</td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${r.diff>0?'+':''}${r.diff}</td></tr>`;
                     });
                     html+=`</tbody></table></div>`;
                 });
@@ -1019,105 +1019,110 @@ function computePhase2Rank(groupName){
         }
 
         // ============ CLASSEMENT FINAL ============
-function computeTotalPoints(){
-    let map=new Map();
-    teams.forEach(t=>map.set(t.id,{
-        pts:0, diff:0, bp:0, bc:0, wins:0, draws:0, losses:0,
-        team:t, ptsP1:0, ptsP2:0,
-        posInGroupP1:99, posInGroupP2:99,
-        groupNameP1:'', groupNameP2:'',
-        matchScoresP1:[], matchScoresP2:[]
-    }));
-    
-    function add(id,forScore,against,win,draw,phase){
-        let s=map.get(id); if(!s) return;
-        if(win){s.pts+=3;s.wins++;if(phase===1)s.ptsP1+=3;else s.ptsP2+=3;}
-        else if(draw){s.pts+=2;s.draws++;if(phase===1)s.ptsP1+=2;else s.ptsP2+=2;}
-        else s.losses++;
-        s.bp+=forScore; s.bc+=against; s.diff+=(forScore-against);
-        if(phase===1) s.matchScoresP1.push(forScore);
-        else s.matchScoresP2.push(forScore);
-    }
-    
-    matchesP1.forEach(m=>{
-        if(!isPlayed(m)) return;
-        let s1=getScore(m.score1),s2=getScore(m.score2);
-        if(s1>s2){add(m.team1.id,s1,s2,true,false,1);add(m.team2.id,s2,s1,false,false,1);}
-        else if(s2>s1){add(m.team2.id,s2,s1,true,false,1);add(m.team1.id,s1,s2,false,false,1);}
-        else{add(m.team1.id,s1,s2,false,true,1);add(m.team2.id,s2,s1,false,true,1);}
-    });
-    
-    matchesP2.forEach(m=>{
-        if(!isPlayed(m)||!m.team1||!m.team2) return;
-        let s1=getScore(m.score1),s2=getScore(m.score2);
-        if(s1>s2){add(m.team1.id,s1,s2,true,false,2);add(m.team2.id,s2,s1,false,false,2);}
-        else if(s2>s1){add(m.team2.id,s2,s1,true,false,2);add(m.team1.id,s1,s2,false,false,2);}
-        else{add(m.team1.id,s1,s2,false,true,2);add(m.team2.id,s2,s1,false,true,2);}
-    });
+        function computeFinalRanking(){
+            // Après matchs de classement : le gagnant prend le rang le plus élevé
+            let ranking=[];
+            if(matchesFinales.length&&matchesFinales.some(isPlayed)){
+                matchesFinales.forEach(m=>{
+                    if(isPlayed(m)){
+                        let s1=getScore(m.score1),s2=getScore(m.score2);
+                        if(s1>=s2){ ranking.push({team:m.team1,finalRank:m.rank1}); ranking.push({team:m.team2,finalRank:m.rank2}); }
+                        else { ranking.push({team:m.team2,finalRank:m.rank1}); ranking.push({team:m.team1,finalRank:m.rank2}); }
+                    } else {
+                        ranking.push({team:m.team1,finalRank:m.rank1,pending:true});
+                        ranking.push({team:m.team2,finalRank:m.rank2,pending:true});
+                    }
+                });
+                ranking.sort((a,b)=>a.finalRank-b.finalRank);
+            }
+            return ranking;
+        }
 
-    // Position dans le groupe P1
-    for(let grp of groupsP1){
-        let rank=computeRankP1(grp.name);
-        rank.forEach((r,idx)=>{ let s=map.get(r.team.id); if(s) { s.posInGroupP1=idx+1; s.groupNameP1=grp.name; } });
-    }
-    // Position dans le groupe P2
-    if(matchesP2.length){
-        let groupNamesP2=new Set(matchesP2.map(m=>m.groupName));
-        groupNamesP2.forEach(gName=>{
-            let rank=computePhase2Rank(gName);
-            rank.forEach((r,idx)=>{ let s=map.get(r.team?.id); if(s) { s.posInGroupP2=idx+1; s.groupNameP2=gName; } });
-        });
-    }
+        function computeTotalPoints(){
+            let map=new Map();
+            teams.forEach(t=>map.set(t.id,{
+                pts:0, diff:0, bp:0, bc:0, wins:0, draws:0, losses:0,
+                team:t, ptsP1:0, ptsP2:0,
+                posInGroupP1:99, posInGroupP2:99,
+                groupNameP1:'', groupNameP2:'',
+                matchScoresP1:[], matchScoresP2:[]
+            }));
+            function add(id,forScore,against,win,draw,phase){
+                let s=map.get(id); if(!s) return;
+                if(win){s.pts+=3;s.wins++;if(phase===1)s.ptsP1+=3;else s.ptsP2+=3;}
+                else if(draw){s.pts+=2;s.draws++;if(phase===1)s.ptsP1+=2;else s.ptsP2+=2;}
+                else s.losses++;
+                s.bp+=forScore; s.bc+=against; s.diff+=(forScore-against);
+                if(phase===1) s.matchScoresP1.push(forScore);
+                else          s.matchScoresP2.push(forScore);
+            }
+            matchesP1.forEach(m=>{
+                if(!isPlayed(m)) return;
+                let s1=getScore(m.score1),s2=getScore(m.score2);
+                if(s1>s2){add(m.team1.id,s1,s2,true,false,1);add(m.team2.id,s2,s1,false,false,1);}
+                else if(s2>s1){add(m.team2.id,s2,s1,true,false,1);add(m.team1.id,s1,s2,false,false,1);}
+                else{add(m.team1.id,s1,s2,false,true,1);add(m.team2.id,s2,s1,false,true,1);}
+            });
+            matchesP2.forEach(m=>{
+                if(!isPlayed(m)||!m.team1||!m.team2) return;
+                let s1=getScore(m.score1),s2=getScore(m.score2);
+                if(s1>s2){add(m.team1.id,s1,s2,true,false,2);add(m.team2.id,s2,s1,false,false,2);}
+                else if(s2>s1){add(m.team2.id,s2,s1,true,false,2);add(m.team1.id,s1,s2,false,false,2);}
+                else{add(m.team1.id,s1,s2,false,true,2);add(m.team2.id,s2,s1,false,true,2);}
+            });
 
-    // Confrontation directe P1+P2 entre deux équipes
-    function directResult(a,b){
-        let allM=[...matchesP1,...matchesP2];
-        let m=allM.find(m=>m.team1&&m.team2&&isPlayed(m)&&(
-            (m.team1.id===a.team.id&&m.team2.id===b.team.id)||
-            (m.team1.id===b.team.id&&m.team2.id===a.team.id)
-        ));
-        if(!m) return 0;
-        let s1=getScore(m.score1),s2=getScore(m.score2);
-        let aIsTeam1=m.team1.id===a.team.id;
-        let aScore=aIsTeam1?s1:s2, bScore=aIsTeam1?s2:s1;
-        if(aScore>bScore) return -1;
-        if(bScore>aScore) return 1;
-        return 0;
-    }
+            // Position + nom de groupe P1
+            for(let grp of groupsP1){
+                let rank=computeRankP1(grp.name);
+                rank.forEach((r,idx)=>{ let s=map.get(r.team.id); if(s){ s.posInGroupP1=idx+1; s.groupNameP1=grp.name; } });
+            }
+            // Position + nom de groupe P2
+            if(matchesP2.length){
+                let groupNamesP2=new Set(matchesP2.filter(m=>m.groupName).map(m=>m.groupName));
+                groupNamesP2.forEach(gName=>{
+                    let rank=computePhase2Rank(gName);
+                    rank.forEach((r,idx)=>{ let s=map.get(r.team?.id); if(s){ s.posInGroupP2=idx+1; s.groupNameP2=gName; } });
+                });
+            }
 
-    // Nouvel ordre des critères pour le classement général :
-    // 1. Points totaux
-    // 2. Différentiel
-    // 3. Meilleure attaque (BP)
-    // 4. Nombre de victoires
-    // 5. Confrontation directe
-    // 6. Meilleur score 1er match de poule (P2 prioritaire sinon P1)
-    // 7. Meilleur score 2 premiers matchs de poule
-    // (La place dans le groupe N'EST PLUS utilisée comme critère principal)
-    
-    return Array.from(map.values()).sort((a,b)=>{
-        // 1. Points totaux
-        if(b.pts!==a.pts) return b.pts-a.pts;
-        // 2. Différentiel
-        if(b.diff!==a.diff) return b.diff-a.diff;
-        // 3. Meilleure attaque (BP)
-        if(b.bp!==a.bp) return b.bp-a.bp;
-        // 4. Victoires
-        if(b.wins!==a.wins) return b.wins-a.wins;
-        // 5. Confrontation directe
-        let dr=directResult(a,b);
-        if(dr!==0) return dr;
-        // 6. Meilleur score 1er match
-        let msA=a.matchScoresP2.length?a.matchScoresP2:a.matchScoresP1;
-        let msB=b.matchScoresP2.length?b.matchScoresP2:b.matchScoresP1;
-        let a1=msA[0]??-1, b1=msB[0]??-1;
-        if(b1!==a1) return b1-a1;
-        // 7. Meilleur score 2 premiers matchs
-        let a2=(msA[0]??0)+(msA[1]??0);
-        let b2=(msB[0]??0)+(msB[1]??0);
-        return b2-a2;
-    });
-}
+            // Confrontation directe P1+P2 entre deux équipes (pour critère 5)
+            function directResult(a,b){
+                // Cherche un match entre a et b dans P1 puis P2
+                let allM=[...matchesP1,...matchesP2];
+                let m=allM.find(m=>m.team1&&m.team2&&isPlayed(m)&&(
+                    (m.team1.id===a.team.id&&m.team2.id===b.team.id)||
+                    (m.team1.id===b.team.id&&m.team2.id===a.team.id)
+                ));
+                if(!m) return 0;
+                let s1=getScore(m.score1),s2=getScore(m.score2);
+                let aIsTeam1=m.team1.id===a.team.id;
+                let aScore=aIsTeam1?s1:s2, bScore=aIsTeam1?s2:s1;
+                if(aScore>bScore) return -1; // a avant b
+                if(bScore>aScore) return 1;  // b avant a
+                return 0;
+            }
+
+            // Tri Class.1 / Class.2 :
+            // 1. Place dans le groupe propre (P2 si jouée, sinon P1)
+            // 2. Points totaux  3. Différentiel  4. Meilleure attaque
+            // 5. Victoires  6. Confrontation directe
+            // 7. Meilleur score 1er match  8. Meilleur score 2 premiers matchs
+            return Array.from(map.values()).sort((a,b)=>{
+                let posA=a.posInGroupP2<99?a.posInGroupP2:a.posInGroupP1;
+                let posB=b.posInGroupP2<99?b.posInGroupP2:b.posInGroupP1;
+                if(posA!==posB) return posA-posB;
+                if(b.pts!==a.pts) return b.pts-a.pts;
+                if(b.diff!==a.diff) return b.diff-a.diff;
+                if(b.bp!==a.bp) return b.bp-a.bp;
+                if(b.wins!==a.wins) return b.wins-a.wins;
+                let dr=directResult(a,b); if(dr!==0) return dr;
+                let msA=a.matchScoresP2.length?a.matchScoresP2:a.matchScoresP1;
+                let msB=b.matchScoresP2.length?b.matchScoresP2:b.matchScoresP1;
+                let a1=msA[0]??-1, b1=msB[0]??-1; if(b1!==a1) return b1-a1;
+                let a2=(msA[0]??0)+(msA[1]??0), b2=(msB[0]??0)+(msB[1]??0);
+                return b2-a2;
+            });
+        }
 
         function updateGlobalRanking(){
             const area=document.getElementById('rankingArea'); if(!area) return;
@@ -1156,7 +1161,7 @@ function computeTotalPoints(){
                 html+=`</div></div>`;
             }
 
-            // === Classement par points cumulés (Class.2) ===
+            // === Classement par points cumulés ===
             let teamCatMap2=new Map();
             matchesP2.forEach(m=>{ if(m.team1?.id) teamCatMap2.set(m.team1.id,m.category); if(m.team2?.id) teamCatMap2.set(m.team2.id,m.category); });
             const hasP2=teamCatMap2.size>0;
@@ -1164,21 +1169,24 @@ function computeTotalPoints(){
             function buildRow(r,globalRank,localRank,medals){
                 let localSymbol=medals[localRank]||localRank+1;
                 let diff=r.diff>0?`+${r.diff}`:r.diff;
-                let groupInfo = '';
-                if (hasP2 && r.groupNameP2 && r.posInGroupP2<=99) {
-                    groupInfo = `#${r.posInGroupP2} (${r.groupNameP2})`;
-                } else if (r.groupNameP1 && r.posInGroupP1<=99) {
-                    groupInfo = `#${r.posInGroupP1} (Groupe ${r.groupNameP1})`;
-                } else {
-                    groupInfo = '—';
-                }
-                return `<tr class="rank-${localRank+1}"><td class="rank-num">${localSymbol}</td><td style="font-size:0.68rem;color:var(--text-muted);text-align:center;">${globalRank}</td><td><b>${esc(r.team.club)}</b></td><td style="font-size:0.62rem;color:var(--text-muted)">${esc(r.team.player1)}<br>${esc(r.team.player2)}</td><td style="font-size:0.7rem;color:var(--accent);font-weight:600;">${groupInfo}</td><td><b>${r.pts}</b></td><td style="color:var(--text-muted)">${r.ptsP1||0}</td><td style="color:var(--text-muted)">${r.ptsP2||0}</td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${diff}</td><td>${r.bp}</td><td style="color:var(--text-muted)">${r.wins}/${r.draws}/${r.losses}</td></tr>`;
+                // Colonne Place/Groupe : P2 si disponible, sinon P1
+                let grpName=r.groupNameP2||r.groupNameP1||'–';
+                let grpPos=r.posInGroupP2<99?r.posInGroupP2:r.posInGroupP1<99?r.posInGroupP1:'–';
+                let grpLabel=grpPos!=='–'?`<span style="font-weight:800;color:var(--accent);">${grpPos}e</span> <span style="font-size:0.6rem;color:var(--text-muted);">Gpe ${esc(grpName)}</span>`:'–';
+                return `<tr class="rank-${localRank+1}"><td class="rank-num">${localSymbol}</td><td style="font-size:0.68rem;color:var(--text-muted);text-align:center;">${globalRank}</td><td><b>${esc(r.team.club)}</b></td><td style="font-size:0.62rem;color:var(--text-muted)">${esc(r.team.player1)}<br>${esc(r.team.player2)}</td><td style="white-space:nowrap;">${grpLabel}</td><td><b>${r.pts}</b></td><td style="color:var(--text-muted)">${r.ptsP1||0}</td><td style="color:var(--text-muted)">${r.ptsP2||0}</td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${diff}</td><td>${r.bp}</td><td style="color:var(--text-muted)">${r.wins}/${r.draws}/${r.losses}</td></tr>`;
             }
             let thead=`<thead><tr><th>Rang local</th><th>Rang global</th><th>Club</th><th>Joueurs</th><th>Place/Groupe</th><th>Pts</th><th>P1</th><th>P2</th><th>Diff</th><th>BP</th><th>V/N/D</th></tr></thead>`;
 
             if(hasP2){
                 // Grouper par catégorie selon matchesP2
-                html+=`<div class="panel"><div class="panel-header">📊 Classement par Points cumulés (P1+P2)</div><div class="panel-body">`;
+                html+=`<div class="panel"><div class="panel-header" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>📊 Classement par Points cumulés (P1+P2)</span>
+                <div style="display:flex;gap:8px;">
+                    ${matchesP1.length?`<button onclick="window.openScoreModalByGroupe('P1')" style="padding:5px 12px;border-radius:20px;border:none;background:var(--accent);color:#fff;font-family:'Poppins',sans-serif;font-size:0.65rem;font-weight:700;cursor:pointer;">📋 Saisie P1</button>`:''}
+                    ${matchesP2.length?`<button onclick="window.openScoreModalByGroupe('P2')" style="padding:5px 12px;border-radius:20px;border:none;background:var(--gold);color:#fff;font-family:'Poppins',sans-serif;font-size:0.65rem;font-weight:700;cursor:pointer;">📋 Saisie P2</button>`:''}
+                    ${matchesFinales.length?`<button onclick="window.openScoreModalByGroupe('FIN')" style="padding:5px 12px;border-radius:20px;border:none;background:var(--elite);color:#fff;font-family:'Poppins',sans-serif;font-size:0.65rem;font-weight:700;cursor:pointer;">📋 Saisie Finale</button>`:''}
+                </div>
+            </div><div class="panel-body">`;
                 let byCatPts=new Map();
                 ptRanking.forEach(r=>{ let cat=teamCatMap2.get(r.team.id)||'sans'; if(!byCatPts.has(cat)) byCatPts.set(cat,[]); byCatPts.get(cat).push(r); });
                 let globalOffset=0, first=true;
@@ -1195,7 +1203,12 @@ function computeTotalPoints(){
                 });
                 html+=`</div></div>`;
             } else {
-                html+=`<div class="panel"><div class="panel-header">📊 Classement par Points</div><div class="panel-body">`;
+                html+=`<div class="panel"><div class="panel-header" style="display:flex;justify-content:space-between;align-items:center;">
+                    <span>📊 Classement par Points</span>
+                    <div style="display:flex;gap:8px;">
+                        ${matchesP1.length?`<button onclick="window.openScoreModalByGroupe('P1')" style="padding:5px 12px;border-radius:20px;border:none;background:var(--accent);color:#fff;font-family:'Poppins',sans-serif;font-size:0.65rem;font-weight:700;cursor:pointer;">📋 Saisie P1</button>`:''}
+                    </div>
+                </div><div class="panel-body">`;
                 html+=`<table class="ranking-table">${thead}<tbody>`;
                 ptRanking.forEach((r,idx)=>{ html+=buildRow(r,idx+1,idx,['🥇','🥈','🥉']); });
                 html+=`</tbody></table></div></div>`;
@@ -1517,85 +1530,81 @@ window._smNav=function(idx){ _smSectionIdx=idx; renderScoreModal(); };
             readTimeSettings();
             let total=getTotalTerrains();
 
-function scheduleGlobal(matchList,startTimeStr,duration,pause){
-    if(!matchList.length) return;
-    let slotDur=duration+pause, startMin=timeToMin(startTimeStr);
-    matchList.forEach(m=>m.startTime='');
-    
-    function getMatchSalle(m){
-        if(m.salleRef!=null) return m.salleRef;
-        if(m.terrain) return getSalleForTerrain(m.terrain);
-        return 0;
-    }
-    
-    let remaining=[...matchList];
-    let wave=0;
-    let lastPlayedWave={};
-    
-    while(remaining.length>0){
-        let waveTime=startMin+wave*slotDur;
-        let busyInWave=new Set(); // équipes déjà programmées dans cette vague
-        let busyTerrainsPerSalle={}; // terrains occupés par salle
-        for(let s=0;s<nbSalles;s++) busyTerrainsPerSalle[s]=new Set();
-        let waveMatches=[];
-        
-        // Prendre tous les matchs qui n'ont pas d'équipes déjà programmées dans cette vague
-        let candidates=remaining.filter(m=>
-            !busyInWave.has(m.team1?.id) && !busyInWave.has(m.team2?.id)
-        );
-        
-        // Trier par ancienneté (équipes qui ont joué le plus tôt en priorité)
-        candidates.sort((a,b)=>{
-            let lastA=Math.max(lastPlayedWave[a.team1?.id]??-99,lastPlayedWave[a.team2?.id]??-99);
-            let lastB=Math.max(lastPlayedWave[b.team1?.id]??-99,lastPlayedWave[b.team2?.id]??-99);
-            return lastA-lastB;
-        });
-        
-        // Remplir la vague en maximisant le nombre de matchs simultanés
-        for(let cand of candidates){
-            let salle=getMatchSalle(cand);
-            let terrainsS=getTerrainsForSalle(salle);
-            // Chercher un terrain libre dans cette salle
-            let freeTerrain=null;
-            for(let t of terrainsS){
-                if(!busyTerrainsPerSalle[salle].has(t)){
-                    freeTerrain=t;
-                    break;
+            function scheduleGlobal(matchList,startTimeStr,duration,pause){
+                if(!matchList.length) return;
+                let slotDur=duration+pause, startMin=timeToMin(startTimeStr);
+                matchList.forEach(m=>m.startTime='');
+
+                // salleRef est la salle fixe du groupe (définie à la génération, jamais modifiée)
+                function getMatchSalle(m){
+                    if(m.salleRef!=null) return m.salleRef;
+                    if(m.terrain) return getSalleForTerrain(m.terrain);
+                    return 0;
+                }
+
+                let remaining=[...matchList], wave=0, busyInPrevWave=new Set(), lastPlayedWave={};
+                while(remaining.length>0){
+                    let waveTime=startMin+wave*slotDur;
+                    let busyInWave=new Set(), waveMatches=[];
+                    let busyTerrains=new Set();
+
+                    // Remplir le créneau : continuer tant qu'on peut placer un match
+                    // (un match par terrain libre, toutes salles confondues dans le même créneau)
+                    let keepGoing=true;
+                    while(keepGoing && remaining.length>0){
+                        keepGoing=false;
+
+                        // Priorité : équipes qui n'ont pas joué au créneau précédent
+                        let candidates=remaining.filter(m=>
+                            !busyInPrevWave.has(m.team1?.id)&&!busyInPrevWave.has(m.team2?.id)&&
+                            !busyInWave.has(m.team1?.id)&&!busyInWave.has(m.team2?.id)
+                        );
+                        // Fallback : équipes simplement libres ce créneau
+                        if(!candidates.length) candidates=remaining.filter(m=>
+                            !busyInWave.has(m.team1?.id)&&!busyInWave.has(m.team2?.id)
+                        );
+                        if(!candidates.length) break;
+
+                        // Favoriser les équipes les plus longtemps au repos
+                        candidates.sort((a,b)=>{
+                            let lastA=Math.max(lastPlayedWave[a.team1?.id]??-99,lastPlayedWave[a.team2?.id]??-99);
+                            let lastB=Math.max(lastPlayedWave[b.team1?.id]??-99,lastPlayedWave[b.team2?.id]??-99);
+                            return lastA-lastB;
+                        });
+
+                        // Chercher un candidat avec un terrain libre dans SA salle
+                        let chosen=null, chosenTerrain=null;
+                        for(let cand of candidates){
+                            let salle=getMatchSalle(cand);
+                            let terrains=getTerrainsForSalle(salle);
+                            let free=terrains.find(t=>!busyTerrains.has(t));
+                            if(free!=null){ chosen=cand; chosenTerrain=free; break; }
+                        }
+                        if(!chosen) break; // tous les terrains disponibles sont occupés
+
+                        remaining.splice(remaining.indexOf(chosen),1);
+                        chosen.startTime=minToTime(waveTime);
+                        chosen.terrain=chosenTerrain;
+                        busyInWave.add(chosen.team1?.id); busyInWave.add(chosen.team2?.id);
+                        busyTerrains.add(chosenTerrain);
+                        lastPlayedWave[chosen.team1?.id]=wave; lastPlayedWave[chosen.team2?.id]=wave;
+                        waveMatches.push(chosen);
+                        keepGoing=true; // continuer : peut-être d'autres terrains libres
+                    }
+
+                    busyInPrevWave=busyInWave;
+                    // Sécurité anti-boucle infinie : forcer le premier match restant
+                    if(!waveMatches.length&&remaining.length){
+                        let m=remaining.shift();
+                        let terrains=getTerrainsForSalle(getMatchSalle(m));
+                        m.startTime=minToTime(waveTime);
+                        m.terrain=terrains[0]||1;
+                        busyInPrevWave=new Set([m.team1?.id,m.team2?.id]);
+                        lastPlayedWave[m.team1?.id]=wave; lastPlayedWave[m.team2?.id]=wave;
+                    }
+                    wave++;
                 }
             }
-            if(freeTerrain){
-                cand.startTime=minToTime(waveTime);
-                cand.terrain=freeTerrain;
-                busyInWave.add(cand.team1?.id);
-                busyInWave.add(cand.team2?.id);
-                busyTerrainsPerSalle[salle].add(freeTerrain);
-                waveMatches.push(cand);
-                // Supprimer de remaining
-                let idx=remaining.findIndex(r=>r===cand);
-                if(idx!==-1) remaining.splice(idx,1);
-            }
-        }
-        
-        // Mettre à jour lastPlayedWave
-        waveMatches.forEach(m=>{
-            lastPlayedWave[m.team1?.id]=wave;
-            lastPlayedWave[m.team2?.id]=wave;
-        });
-        
-        // Si aucun match n'a pu être placé mais qu'il reste des matchs, on force un placement
-        if(waveMatches.length===0 && remaining.length>0){
-            let m=remaining.shift();
-            let salle=getMatchSalle(m);
-            let terrainsS=getTerrainsForSalle(salle);
-            m.startTime=minToTime(waveTime);
-            m.terrain=terrainsS[0];
-            lastPlayedWave[m.team1?.id]=wave;
-            lastPlayedWave[m.team2?.id]=wave;
-            waveMatches.push(m);
-        }
-        wave++;
-    }
-}
 
             scheduleGlobal(matchesP1,timeSettings.startP1,timeSettings.durationP1,timeSettings.breakP1);
             let p1End=0; matchesP1.forEach(m=>{ if(m.startTime) p1End=Math.max(p1End,timeToMin(m.startTime)+timeSettings.durationP1); });
