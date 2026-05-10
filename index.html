@@ -1153,12 +1153,19 @@
                     let color=catColors[cat];
                     if(anyDisplayed) html+=`<div style="height:2px;background:linear-gradient(90deg,${color}33,${color},${color}33);border-radius:2px;margin:14px 0;"></div>`;
                     html+=`<div style="font-weight:800;font-size:0.78rem;color:${color};margin:8px 0 6px;padding:4px 10px;background:${color}14;border-radius:8px;border-left:3px solid ${color};">${catLabels[cat]}</div>`;
-                    html+=`<table class="ranking-table"><thead><tr><th>Rang</th><th>Club</th><th>Joueurs</th><th>Statut</th></tr></thead><tbody>`;
                     rows.forEach(r=>{
                         let medals=['🥇','🥈','🥉'];
-                        html+=`<tr class="${r.pending?'':'rank-'+(Math.min(r.finalRank,3))}"><td class="rank-num" style="${r.pending?'color:var(--text-muted)':r.finalRank<=3?'':'color:var(--text);'}">${medals[r.finalRank-1]||r.finalRank+'e'}</td><td><b>${esc(r.team?.club||'?')}</b></td><td style="font-size:0.62rem;color:var(--text-muted)">${esc(r.team?.player1||'')}<br>${esc(r.team?.player2||'')}</td><td style="font-size:0.65rem;color:${r.pending?'var(--warning)':'var(--accent)'}">${r.pending?'⏳':'✅'}</td></tr>`;
+                        let rankLabel=medals[r.finalRank-1]||r.finalRank+'e';
+                        let statusColor=r.pending?'var(--warning)':'var(--accent)';
+                        html+=`<div class="rank-card" style="display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:12px;border:1px solid ${r.pending?'var(--border)':'rgba(46,125,50,0.3)'};background:${r.pending?'var(--bg)':'rgba(46,125,50,0.05)'};margin-bottom:6px;">
+                          <div style="font-size:1.2rem;min-width:36px;text-align:center;font-weight:900;">${rankLabel}</div>
+                          <div style="flex:1;min-width:0;">
+                            <div style="font-weight:800;font-size:0.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.team?.club||'?')}</div>
+                            <div style="font-size:0.6rem;color:var(--text-muted);margin-top:1px;">${esc(r.team?.player1||'')} / ${esc(r.team?.player2||'')}</div>
+                          </div>
+                          <div style="font-size:0.75rem;font-weight:700;color:${statusColor};flex-shrink:0;">${r.pending?'⏳ En attente':'✅ Joué'}</div>
+                        </div>`;
                     });
-                    html+=`</tbody></table>`;
                     anyDisplayed=true;
                 });
                 html+=`</div></div>`;
@@ -1172,13 +1179,40 @@
             function buildRow(r,globalRank,localRank,medals){
                 let localSymbol=medals[localRank]||localRank+1;
                 let diff=r.diff>0?`+${r.diff}`:r.diff;
-                // Colonne Place/Groupe : P2 si disponible, sinon P1
                 let grpName=r.groupNameP2||r.groupNameP1||'–';
                 let grpPos=r.posInGroupP2<99?r.posInGroupP2:r.posInGroupP1<99?r.posInGroupP1:'–';
-                let grpLabel=grpPos!=='–'?`<span style="font-weight:800;color:var(--accent);">${grpPos}e</span> <span style="font-size:0.6rem;color:var(--text-muted);">Gpe ${esc(grpName)}</span>`:'–';
-                return `<tr class="rank-${localRank+1}"><td class="rank-num">${localSymbol}</td><td style="font-size:0.68rem;color:var(--text-muted);text-align:center;">${globalRank}</td><td><b>${esc(r.team.club)}</b></td><td style="font-size:0.62rem;color:var(--text-muted)">${esc(r.team.player1)}<br>${esc(r.team.player2)}</td><td style="white-space:nowrap;">${grpLabel}</td><td><b>${r.pts}</b></td><td style="color:var(--text-muted)">${r.ptsP1||0}</td><td style="color:var(--text-muted)">${r.ptsP2||0}</td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${diff}</td><td>${r.bp}</td><td style="color:var(--text-muted)">${r.wins}/${r.draws}/${r.losses}</td></tr>`;
+                let grpLabel=grpPos!=='–'?`${grpPos}e · Gpe ${esc(grpName)}`:'–';
+                let diffColor=r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':'';
+                // Carte mobile : tout en blocs empilés
+                return `<tr class="rank-row rank-${localRank+1}">
+                  <td class="rank-num" style="vertical-align:top;padding-top:10px;">${localSymbol}</td>
+                  <td colspan="10" style="padding:8px 4px;">
+                    <!-- Ligne principale : club + groupe + pts -->
+                    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:6px;flex-wrap:wrap;">
+                      <div>
+                        <span style="font-weight:800;font-size:0.82rem;">${esc(r.team.club)}</span>
+                        <span style="font-size:0.6rem;color:var(--text-muted);margin-left:6px;">#${globalRank}</span>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <span style="font-size:0.62rem;color:var(--accent);font-weight:700;white-space:nowrap;">${grpLabel}</span>
+                        <span style="font-size:1rem;font-weight:900;color:var(--accent);min-width:28px;text-align:right;">${r.pts}</span>
+                        <span style="font-size:0.6rem;color:var(--text-muted);">pts</span>
+                      </div>
+                    </div>
+                    <!-- Ligne joueurs -->
+                    <div style="font-size:0.6rem;color:var(--text-muted);margin:2px 0 5px;">${esc(r.team.player1)} / ${esc(r.team.player2)}</div>
+                    <!-- Stats secondaires -->
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:0.65rem;">
+                      <span style="color:var(--text-muted);">P1 <b style="color:var(--text);">${r.ptsP1||0}</b></span>
+                      <span style="color:var(--text-muted);">P2 <b style="color:var(--text);">${r.ptsP2||0}</b></span>
+                      <span style="color:var(--text-muted);">Diff <b style="${diffColor}">${diff}</b></span>
+                      <span style="color:var(--text-muted);">BP <b style="color:var(--text);">${r.bp}</b></span>
+                      <span style="color:var(--text-muted);">V/N/D <b style="color:var(--text);">${r.wins}/${r.draws}/${r.losses}</b></span>
+                    </div>
+                  </td>
+                </tr>`;
             }
-            let thead=`<thead><tr><th>Rang local</th><th>Rang global</th><th>Club</th><th>Joueurs</th><th>Place/Groupe</th><th>Pts</th><th>P1</th><th>P2</th><th>Diff</th><th>BP</th><th>V/N/D</th></tr></thead>`;
+            let thead=`<thead><tr><th style="width:32px;"></th><th colspan="10"></th></tr></thead>`;
 
             if(hasP2){
                 // Grouper par catégorie selon matchesP2
@@ -1198,9 +1232,9 @@
                     let color=catColors[cat];
                     if(!first) html+=`<div style="height:2px;background:linear-gradient(90deg,${color}33,${color},${color}33);border-radius:2px;margin:16px 0;"></div>`;
                     html+=`<div style="font-weight:800;font-size:0.78rem;color:${color};margin:8px 0 6px;padding:4px 10px;background:${color}14;border-radius:8px;border-left:3px solid ${color};">${catLabels[cat]}</div>`;
-                    html+=`<table class="ranking-table">${thead}<tbody>`;
+                    html+=`<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><table class="ranking-table" style="min-width:0;">${thead}<tbody>`;
                     rows.forEach((r,idx)=>{ html+=buildRow(r,globalOffset+idx+1,idx,['🥇','🥈','🥉']); });
-                    html+=`</tbody></table>`;
+                    html+=`</tbody></table></div>`;
                     globalOffset+=rows.length;
                     first=false;
                 });
@@ -1212,9 +1246,9 @@
                         ${matchesP1.length?`<button onclick="window.openScoreModalByGroupe('P1')" style="padding:5px 12px;border-radius:20px;border:none;background:var(--accent);color:#fff;font-family:'Poppins',sans-serif;font-size:0.65rem;font-weight:700;cursor:pointer;">📋 Saisie P1</button>`:''}
                     </div>
                 </div><div class="panel-body">`;
-                html+=`<table class="ranking-table">${thead}<tbody>`;
+                html+=`<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;"><table class="ranking-table" style="min-width:0;">${thead}<tbody>`;
                 ptRanking.forEach((r,idx)=>{ html+=buildRow(r,idx+1,idx,['🥇','🥈','🥉']); });
-                html+=`</tbody></table></div></div>`;
+                html+=`</tbody></table></div></div></div>`;
             }
             area.innerHTML=html;
         }
@@ -2121,6 +2155,8 @@ window._smNav=function(idx){ _smSectionIdx=idx; renderScoreModal(); };
         .time-input{ padding:4px 6px; border-radius:8px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-family:'DM Mono',monospace; font-size:0.7rem; }
         .round-label{ font-weight:700; font-size:0.72rem; color:var(--accent); padding:6px 0 4px; border-bottom:1px solid var(--border); margin-bottom:6px; }
         .ranking-table{ width:100%; border-collapse:collapse; font-size:0.72rem; }
+        .rank-row td{ padding:6px 4px; border-bottom:1px solid var(--border); }
+        .rank-row:last-child td{ border-bottom:none; }
         .ranking-table th{ padding:8px 6px; text-align:left; border-bottom:2px solid var(--border); color:var(--text-muted); font-weight:600; font-size:0.65rem; white-space:nowrap; }
         .ranking-table td{ padding:7px 6px; border-bottom:1px solid var(--border); vertical-align:middle; }
         .rank-num{ font-weight:800; color:var(--text-muted); font-size:0.8rem; }
