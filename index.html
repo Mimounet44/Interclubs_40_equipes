@@ -321,28 +321,38 @@
         // ============ GÉNÉRATION MATCHS P1 ============
         function generateRoundRobin(teamsList,groupName,startId,groupIndex){
             let n=teamsList.length, matches=[], id=startId;
-            // Attribution terrain : si 2 salles, groupes pairs→salle 0, impairs→salle 1
-            // Si 1 salle, rotation simple sur tous les terrains
-            let baseTerrain;
-            if(nbSalles>1){
-                let salleIdx=groupIndex%nbSalles;
-                let terrainsS=getTerrainsForSalle(salleIdx);
-                baseTerrain=terrainsS[0]; // tous les matchs du groupe dans cette salle
-            } else {
-                let totalT=getTotalTerrains();
-                baseTerrain=(groupIndex%totalT)+1;
-            }
+
+            // Déterminer la salle et la liste des terrains pour ce groupe
+            let salleIdx = nbSalles > 1 ? (groupIndex % nbSalles) : 0;
+            let salleTerrains = getTerrainsForSalle(salleIdx); // ex: [0,1,2] (0-indexé) → on utilise +1 pour afficher
+
+            // Générer tous les rounds (round-robin de Berger)
             let indices=[...Array(n).keys()];
             if(n%2===1) indices.push(-1);
             let rounds=indices.length-1;
+            let allRounds=[]; // allRounds[r] = liste de matchs du round r
             for(let round=0;round<rounds;round++){
+                let roundMatches=[];
                 for(let i=0;i<indices.length/2;i++){
                     let a=indices[i], b=indices[indices.length-1-i];
-                    if(a!==-1&&b!==-1) matches.push({id:id++,group:groupName,team1:teamsList[a],team2:teamsList[b],score1:'',score2:'',terrain:baseTerrain});
+                    if(a!==-1&&b!==-1) roundMatches.push({team1:teamsList[a],team2:teamsList[b]});
                 }
+                allRounds.push(roundMatches);
                 indices.splice(1,0,indices.pop());
             }
-            return {matches,nextId:id};
+
+            // Répartir les matchs de chaque round sur les terrains de la salle, en rotation
+            // Ex : 4 équipes → 3 rounds de 2 matchs chacun. Avec 3 terrains : T1,T2 au round 1, T3,T1 au round 2, etc.
+            let terrainCursor=0;
+            allRounds.forEach(roundMatches=>{
+                roundMatches.forEach(rm=>{
+                    let terrain = salleTerrains[terrainCursor % salleTerrains.length]; // déjà 1-basé
+                    matches.push({id:id++, group:groupName, team1:rm.team1, team2:rm.team2, score1:'', score2:'', terrain});
+                    terrainCursor++;
+                });
+            });
+
+            return {matches, nextId:id};
         }
 
         function genPhase1(){
@@ -1220,42 +1230,69 @@
             </div>
             <div style="font-size:0.68rem;color:var(--text-muted);text-align:right;margin-top:-10px;margin-bottom:10px;">${playedCount}/${totalMatches} matchs saisis (${pct}%)</div>`;
 
+            // Scores rapides communs (pickleball)
+            const QUICK_SCORES=[0,6,7,8,9,10,11,12,13,14,15];
+
+            function scoreStepperHtml(mid,ph,side,val,borderColor,bgColor){
+                let v=val===''?'':parseInt(val);
+                let displayVal=val===''?'–':v;
+                return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+                    <button class="sm-btn-step" data-id="${mid}" data-phase="${ph}" data-side="${side}" data-delta="1"
+                        style="width:36px;height:28px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:1.1rem;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;">▲</button>
+                    <input type="number" min="0" inputmode="numeric" class="modal-score-inp" data-id="${mid}" data-phase="${ph}" data-side="${side}" value="${val}"
+                        style="width:52px;height:48px;text-align:center;font-size:1.5rem;font-weight:900;border-radius:10px;border:2px solid ${borderColor};background:${bgColor};color:var(--text);font-family:'DM Mono','Poppins',sans-serif;outline:none;-moz-appearance:textfield;">
+                    <button class="sm-btn-step" data-id="${mid}" data-phase="${ph}" data-side="${side}" data-delta="-1"
+                        style="width:36px;height:28px;border-radius:8px;border:none;background:var(--surface);color:var(--text);font-size:1.1rem;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;border:1px solid var(--border);">▼</button>
+                </div>`;
+            }
+
             // Liste des matchs de la section
             let matchesHtml='';
             matches.forEach((m,mi)=>{
                 let played=isPlayed(m);
                 let s1=m.score1??'', s2=m.score2??'';
-                let win1=played&&getScore(s1)>getScore(s2), win2=played&&getScore(s2)>getScore(s1), draw=played&&getScore(s1)===getScore(s2);
+                let v1=s1===''?null:parseInt(s1), v2=s2===''?null:parseInt(s2);
+                let win1=played&&v1>v2, win2=played&&v2>v1, draw=played&&v1===v2&&v1!==null;
                 let grpLabel=mode==='terrain'?(m.group||m.groupName||m.groupPair||''):'';
                 let timeStr=m.startTime?`<span style="font-family:'DM Mono',monospace;font-size:0.65rem;font-weight:700;color:var(--accent);background:rgba(46,125,50,0.12);border-radius:8px;padding:2px 7px;">🕐 ${m.startTime}</span>`:'';
                 let terrainStr=mode==='groupe'&&m.terrain?`<span style="font-size:0.63rem;color:var(--text-muted);">🎾 T${m.terrain}</span>`:'';
                 let rankStr=m.rank1?`<span style="font-size:0.63rem;color:var(--text-muted);">🏆 ${m.rank1}e/${m.rank2}e</span>`:'';
                 let meta=[timeStr,terrainStr,rankStr,grpLabel?`<span style="font-size:0.6rem;color:var(--text-muted);border:1px solid var(--border);border-radius:8px;padding:1px 6px;">${esc(grpLabel)}</span>`:''].filter(Boolean).join(' ');
 
-                matchesHtml+=`<div style="border-radius:14px;border:2px solid ${played?'rgba(46,125,50,0.4)':'var(--border)'};background:${played?'rgba(46,125,50,0.06)':'var(--bg)'};padding:12px 14px;margin-bottom:10px;">
+                let bc1=win1?'var(--accent)':draw?'var(--warning)':'var(--border)';
+                let bg1=win1?'rgba(46,125,50,0.1)':draw?'rgba(255,165,0,0.08)':'var(--surface2)';
+                let bc2=win2?'var(--accent)':draw?'var(--warning)':'var(--border)';
+                let bg2=win2?'rgba(46,125,50,0.1)':draw?'rgba(255,165,0,0.08)':'var(--surface2)';
+
+                // Chips de score rapide pour chaque côté
+                let chipsHtml=(side)=>{
+                    let cur=side===1?v1:v2;
+                    return `<div style="display:flex;gap:3px;flex-wrap:wrap;justify-content:center;margin-top:4px;">
+                        ${QUICK_SCORES.map(n=>`<button class="sm-chip" data-id="${m.id}" data-phase="${phase}" data-side="${side}" data-val="${n}"
+                            style="padding:3px 7px;border-radius:12px;border:1px solid ${cur===n?'var(--accent)':'var(--border)'};background:${cur===n?'var(--accent)':'var(--bg)'};color:${cur===n?'#fff':'var(--text)'};font-family:'DM Mono',sans-serif;font-size:0.68rem;font-weight:700;cursor:pointer;line-height:1.4;">${n}</button>`).join('')}
+                    </div>`;
+                };
+
+                matchesHtml+=`<div style="border-radius:14px;border:2px solid ${played?'rgba(46,125,50,0.4)':'var(--border)'};background:${played?'rgba(46,125,50,0.06)':'var(--bg)'};padding:12px 14px;margin-bottom:12px;">
                     ${meta?`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">${meta}</div>`:''}
-                    <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;">
+                    <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:start;gap:8px;">
                         <div style="text-align:right;">
                             <div style="font-weight:800;font-size:0.82rem;color:${win1?'var(--accent)':win2?'var(--text-muted)':'var(--text)'};">${esc(m.team1?.club||'?')}</div>
                             <div style="font-size:0.58rem;color:var(--text-muted);line-height:1.3;margin-top:1px;">${esc(m.team1?.player1||'')} / ${esc(m.team1?.player2||'')}</div>
+                            ${chipsHtml(1)}
                         </div>
-                        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
-                            <div style="position:relative;">
-                                <input type="number" min="0" inputmode="numeric" class="modal-score-inp" data-id="${m.id}" data-phase="${phase}" data-side="1" value="${s1}" placeholder="–"
-                                    style="width:54px;height:46px;text-align:center;font-size:1.4rem;font-weight:800;border-radius:10px;border:2px solid ${win1?'var(--accent)':draw?'var(--warning)':'var(--border)'};background:${win1?'rgba(46,125,50,0.1)':draw?'rgba(255,165,0,0.08)':'var(--surface2)'};color:var(--text);font-family:'DM Mono','Poppins',sans-serif;outline:none;">
-                            </div>
-                            <span style="font-size:1.2rem;font-weight:900;color:var(--text-muted);">–</span>
-                            <div style="position:relative;">
-                                <input type="number" min="0" inputmode="numeric" class="modal-score-inp" data-id="${m.id}" data-phase="${phase}" data-side="2" value="${s2}" placeholder="–"
-                                    style="width:54px;height:46px;text-align:center;font-size:1.4rem;font-weight:800;border-radius:10px;border:2px solid ${win2?'var(--accent)':draw?'var(--warning)':'var(--border)'};background:${win2?'rgba(46,125,50,0.1)':draw?'rgba(255,165,0,0.08)':'var(--surface2)'};color:var(--text);font-family:'DM Mono','Poppins',sans-serif;outline:none;">
-                            </div>
+                        <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:2px;">
+                            ${scoreStepperHtml(m.id,phase,1,s1,bc1,bg1)}
+                            <span style="font-size:1.1rem;font-weight:900;color:var(--text-muted);line-height:1;">–</span>
+                            ${scoreStepperHtml(m.id,phase,2,s2,bc2,bg2)}
                         </div>
                         <div style="text-align:left;">
                             <div style="font-weight:800;font-size:0.82rem;color:${win2?'var(--accent)':win1?'var(--text-muted)':'var(--text)'};">${esc(m.team2?.club||'?')}</div>
                             <div style="font-size:0.58rem;color:var(--text-muted);line-height:1.3;margin-top:1px;">${esc(m.team2?.player1||'')} / ${esc(m.team2?.player2||'')}</div>
+                            ${chipsHtml(2)}
                         </div>
                     </div>
-                    ${played?`<div style="text-align:center;margin-top:6px;font-size:0.65rem;font-weight:700;color:${win1||win2?'var(--accent)':'var(--warning)'};">${win1?'✅ '+esc(m.team1?.club||'?')+' gagne':win2?'✅ '+esc(m.team2?.club||'?')+' gagne':'🤝 Égalité'}</div>`:''}
+                    ${played?`<div style="text-align:center;margin-top:8px;font-size:0.68rem;font-weight:700;color:${win1||win2?'var(--accent)':'var(--warning)'};">${win1?'✅ '+esc(m.team1?.club||'?')+' gagne':win2?'✅ '+esc(m.team2?.club||'?')+' gagne':'🤝 Égalité'}</div>`:''}
                 </div>`;
             });
 
@@ -1295,10 +1332,40 @@
             </div>`;
 
             modal.querySelectorAll('.modal-score-inp').forEach(inp=>inp.addEventListener('input',modalScoreHandler));
+
+            // Boutons ▲▼ stepper
+            modal.querySelectorAll('.sm-btn-step').forEach(btn=>btn.addEventListener('click',function(){
+                if(!isAdmin&&!isSaisie) return;
+                let mid=parseInt(this.dataset.id), ph=this.dataset.phase, side=this.dataset.side, delta=parseInt(this.dataset.delta);
+                let m=ph==='P1'?matchesP1.find(x=>x.id===mid):ph==='P2'?matchesP2.find(x=>x.id===mid):matchesFinales.find(x=>x.id===mid);
+                if(!m) return;
+                let cur=side==='1'?(m.score1===''||m.score1==null?0:parseInt(m.score1)):(m.score2===''||m.score2==null?0:parseInt(m.score2));
+                let nv=Math.max(0,cur+delta);
+                if(side==='1') m.score1=String(nv); else m.score2=String(nv);
+                _commitScore(ph);
+            }));
+
+            // Chips de score rapide
+            modal.querySelectorAll('.sm-chip').forEach(btn=>btn.addEventListener('click',function(){
+                if(!isAdmin&&!isSaisie) return;
+                let mid=parseInt(this.dataset.id), ph=this.dataset.phase, side=this.dataset.side, val=this.dataset.val;
+                let m=ph==='P1'?matchesP1.find(x=>x.id===mid):ph==='P2'?matchesP2.find(x=>x.id===mid):matchesFinales.find(x=>x.id===mid);
+                if(!m) return;
+                if(side==='1') m.score1=val; else m.score2=val;
+                _commitScore(ph);
+            }));
         }
 
         window._smNav=function(idx){ _smSectionIdx=idx; renderScoreModal(); };
         window._smSwitch=function(mode){ _smMode=mode; _smSectionIdx=0; renderScoreModal(); };
+
+        function _commitScore(phase){
+            renderScoreModal();
+            if(phase==='P1'){ renderPhase1UI(); renderRankingP1(); }
+            else if(phase==='P2'){ renderPhase2UI(); renderRankingP2(); }
+            else renderFinalesUI();
+            updateGlobalRanking(); renderSchedule(); updateCounters(); saveData(); updateTopRecap();
+        }
 
         function modalScoreHandler(e){
             if(!isAdmin&&!isSaisie) return;
@@ -1306,12 +1373,7 @@
             let m=phase==='P1'?matchesP1.find(x=>x.id===mid):phase==='P2'?matchesP2.find(x=>x.id===mid):matchesFinales.find(x=>x.id===mid);
             if(!m) return;
             if(side==='1') m.score1=inp.value; else m.score2=inp.value;
-            // Mise à jour légère : juste re-render la modale + compteurs (pas toute la page)
-            renderScoreModal();
-            if(phase==='P1'){ renderPhase1UI(); renderRankingP1(); }
-            else if(phase==='P2'){ renderPhase2UI(); renderRankingP2(); }
-            else renderFinalesUI();
-            updateGlobalRanking(); renderSchedule(); updateCounters(); saveData(); updateTopRecap();
+            _commitScore(phase);
         }
 
         // ============ HORAIRES ============
@@ -1324,24 +1386,69 @@
                 if(!matchList.length) return;
                 let slotDur=duration+pause, startMin=timeToMin(startTimeStr);
                 matchList.forEach(m=>m.startTime='');
+
+                // Pré-calculer la salle de chaque match (fixe, basée sur le terrain assigné à la génération)
+                // Si pas de terrain assigné, on considère toute la salle 0
+                function getMatchSalle(m){
+                    if(!m.terrain) return 0;
+                    return getSalleForTerrain(m.terrain);
+                }
+                function getSalleTerrains(salleIdx){
+                    return getTerrainsForSalle(salleIdx); // retourne terrains 1-basés
+                }
+
                 let remaining=[...matchList], wave=0, busyInPrevWave=new Set(), lastPlayedWave={};
                 while(remaining.length>0){
-                    let waveTime=startMin+wave*slotDur, busyInWave=new Set(), waveMatches=[];
-                    for(let t=1;t<=total;t++){
-                        if(!remaining.length) break;
-                        let candidates=remaining.filter(m=>!busyInPrevWave.has(m.team1?.id)&&!busyInPrevWave.has(m.team2?.id)&&!busyInWave.has(m.team1?.id)&&!busyInWave.has(m.team2?.id));
-                        if(!candidates.length) candidates=remaining.filter(m=>!busyInWave.has(m.team1?.id)&&!busyInWave.has(m.team2?.id));
-                        if(!candidates.length) continue;
+                    let waveTime=startMin+wave*slotDur;
+                    let busyInWave=new Set(), waveMatches=[];
+                    // Suivre quels terrains sont pris dans ce créneau
+                    let busyTerrains=new Set();
+
+                    let placed=true;
+                    while(placed){
+                        placed=false;
+                        let candidates=remaining.filter(m=>
+                            !busyInPrevWave.has(m.team1?.id)&&!busyInPrevWave.has(m.team2?.id)&&
+                            !busyInWave.has(m.team1?.id)&&!busyInWave.has(m.team2?.id)
+                        );
+                        if(!candidates.length) candidates=remaining.filter(m=>
+                            !busyInWave.has(m.team1?.id)&&!busyInWave.has(m.team2?.id)
+                        );
+                        if(!candidates.length) break;
+
+                        // Parmi les candidats, chercher un qui a un terrain libre dans sa salle
                         candidates.sort((a,b)=>{ let lastA=Math.max(lastPlayedWave[a.team1?.id]??-99,lastPlayedWave[a.team2?.id]??-99); let lastB=Math.max(lastPlayedWave[b.team1?.id]??-99,lastPlayedWave[b.team2?.id]??-99); return lastA-lastB; });
-                        let chosen=candidates[0];
+
+                        let chosen=null, chosenTerrain=null;
+                        for(let cand of candidates){
+                            let salleIdx=getMatchSalle(cand);
+                            let salleTerrains=getSalleTerrains(salleIdx);
+                            let freeTerrain=salleTerrains.find(t=>!busyTerrains.has(t));
+                            if(freeTerrain!=null){ chosen=cand; chosenTerrain=freeTerrain; break; }
+                        }
+                        if(!chosen) break;
+
                         remaining.splice(remaining.indexOf(chosen),1);
-                        chosen.startTime=minToTime(waveTime); chosen.terrain=t;
+                        chosen.startTime=minToTime(waveTime);
+                        chosen.terrain=chosenTerrain;
                         busyInWave.add(chosen.team1?.id); busyInWave.add(chosen.team2?.id);
+                        busyTerrains.add(chosenTerrain);
                         lastPlayedWave[chosen.team1?.id]=wave; lastPlayedWave[chosen.team2?.id]=wave;
                         waveMatches.push(chosen);
+                        placed=true;
                     }
+
                     busyInPrevWave=busyInWave;
-                    if(!waveMatches.length&&remaining.length){ let m=remaining.shift(); m.startTime=minToTime(waveTime); m.terrain=1; busyInPrevWave=new Set([m.team1?.id,m.team2?.id]); lastPlayedWave[m.team1?.id]=wave; lastPlayedWave[m.team2?.id]=wave; }
+                    // Sécurité : si aucun match placé mais il en reste, forcer le premier
+                    if(!waveMatches.length&&remaining.length){
+                        let m=remaining.shift();
+                        let salleIdx=getMatchSalle(m);
+                        let salleTerrains=getSalleTerrains(salleIdx);
+                        m.startTime=minToTime(waveTime);
+                        m.terrain=salleTerrains[0]||1;
+                        busyInPrevWave=new Set([m.team1?.id,m.team2?.id]);
+                        lastPlayedWave[m.team1?.id]=wave; lastPlayedWave[m.team2?.id]=wave;
+                    }
                     wave++;
                 }
             }
