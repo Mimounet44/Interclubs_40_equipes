@@ -1024,10 +1024,22 @@
             let ranking=[];
             if(!matchesFinales.length) return ranking;
 
-            // Classement général par points (pour départager les égalités)
+            // Statistiques complètes P1+P2 pour départager les nuls
             let ptRanking=computeTotalPoints();
-            let ptMap=new Map(); // teamId → rang dans ptRanking (0=meilleur)
-            ptRanking.forEach((r,idx)=>ptMap.set(r.team.id,idx));
+            // Map teamId → stats complètes {pts, diff, bp, wins}
+            let statsMap=new Map();
+            ptRanking.forEach(r=>statsMap.set(r.team.id,r));
+
+            // Départage nul : 1.pts cumulés P1+P2  2.goal-average général  3.meilleure attaque  4.victoires
+            function drawTiebreak(t1,t2){
+                let a=statsMap.get(t1.id)||{pts:0,diff:0,bp:0,wins:0};
+                let b=statsMap.get(t2.id)||{pts:0,diff:0,bp:0,wins:0};
+                if(a.pts!==b.pts) return a.pts>b.pts?t1:t2;     // 1. points cumulés
+                if(a.diff!==b.diff) return a.diff>b.diff?t1:t2;  // 2. goal-average général
+                if(a.bp!==b.bp) return a.bp>b.bp?t1:t2;          // 3. meilleure attaque
+                if(a.wins!==b.wins) return a.wins>b.wins?t1:t2;  // 4. victoires
+                return t1; // parfaite égalité : on garde l'ordre d'origine
+            }
 
             let seen=new Set();
             matchesFinales.forEach(m=>{
@@ -1040,11 +1052,9 @@
                         winner=s1>s2?m.team1:m.team2;
                         loser=s1>s2?m.team2:m.team1;
                     } else {
-                        // Égalité : départage par classement général (meilleur rang = gagnant)
-                        let rank1=ptMap.get(m.team1.id)??999;
-                        let rank2=ptMap.get(m.team2.id)??999;
-                        winner=rank1<=rank2?m.team1:m.team2;
-                        loser=rank1<=rank2?m.team2:m.team1;
+                        // Nul : départage par cumul de stats P1+P2
+                        winner=drawTiebreak(m.team1,m.team2);
+                        loser=winner.id===m.team1.id?m.team2:m.team1;
                     }
                     if(!seen.has(winner.id)){ seen.add(winner.id); ranking.push({team:winner,finalRank:m.rank1,drawnOff:draw}); }
                     if(!seen.has(loser.id)){ seen.add(loser.id); ranking.push({team:loser,finalRank:m.rank2,drawnOff:draw}); }
@@ -1899,8 +1909,14 @@ window._smNav=function(idx){ _smSectionIdx=idx; renderScoreModal(); };
                 ):''}
 
                 ${ruleBlock('🏆','Matchs de classement (Phase finale)',
-                    `1er pool A vs 1er pool B → places 1 &amp; 2 · … · 4e pool A vs 4e pool B → places 39 &amp; 40<br>
-                    <span style="font-size:0.72rem;color:var(--text-muted);">En cas de <b>match nul</b> lors d'un match de classement, le classement général par points sur l'ensemble du tournoi (P1 + P2) départage les deux équipes. L'équipe mieux classée obtient la place haute.</span>`
+                    `1er pool A vs 1er pool B → places 1 &amp; 2 · … · 4e pool A vs 4e pool B → places 39 &amp; 40<br><br>
+                    <b>En cas de match nul</b>, départage dans l'ordre strict :<br>
+                    ${ruleList([
+                        'Cumul de points P1 + P2',
+                        'Goal-average général (différentiel de points sur tout le tournoi)',
+                        'Meilleure attaque (total de points marqués P1 + P2)',
+                        'Nombre de victoires (P1 + P2)'
+                    ])}`
                 )}
 
                 ${ruleBlock('🕐','Planning',
