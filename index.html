@@ -626,13 +626,15 @@
         // La répartition se fait par ordre d'index de groupe dans allP2Groups/groupsP2E.
         // On remplit la Salle A jusqu'à épuisement de sa capacité, puis Salle B.
         function assignSallesParNiveau(allGroups){
-            // allGroups ordonné par niveau : élite1,élite2,or1,or2,argent1,argent2,bronze1,bronze2,consol1,consol2
-            // Salle A : première moitié (élite+or+argent1)
-            // Salle B : deuxième moitié (argent2+bronze+consol)
-            // Math.floor → avec 10 groupes : 5 en A (idx 0-4), 5 en B (idx 5-9)
-            //              avec 8 groupes  : 4 en A (idx 0-3), 4 en B (idx 4-7)
+            // Répartition explicite par catégorie et ordre de niveau
+            // Catégories dans l'ordre : elite, elite, or, or, argent, argent, bronze, bronze, consol, consol
+            // Salle A : elite + or + argent1 (les 5 premiers)
+            // Salle B : argent2 + bronze + consol (les 5 derniers)
             if(nbSalles<=1) return allGroups.map(()=>0);
+            // On parcourt les groupes dans l'ordre et on remplit salle A en priorité
+            // jusqu'à la moitié, puis salle B
             let splitAt=Math.floor(allGroups.length/2);
+            // Si nombre impair, salle A a un groupe de plus
             return allGroups.map((_,i)=> i<splitAt ? 0 : 1);
         }
 
@@ -658,7 +660,7 @@
                             terrainCursors[salleIdx]++;
                             matchesP2.push({id:nextId++,category:grp.category,groupName:grp.name,
                                 team1:grp.teams[a],team2:grp.teams[b],score1:'',score2:'',
-                                terrain,salleRef:salleIdx});
+                                terrain,salleRef:salleIdx,salleIdx});
                         }
                     }
                     indices.splice(1,0,indices.pop());
@@ -777,7 +779,7 @@
                             terrainCursors[salleIdx]++;
                             matchesP2.push({id:nextId++,category:grp.category,groupName:grp.name,
                                 team1:grp.teams[a],team2:grp.teams[b],score1:'',score2:'',
-                                terrain,salleRef:salleIdx,isFormatE:true});
+                                terrain,salleRef:salleIdx,salleIdx,isFormatE:true});
                         }
                     }
                     indices.splice(1,0,indices.pop());
@@ -890,7 +892,7 @@
                 catGroups.forEach(([gName,matches])=>{
                     let rankStats=computePhase2Rank(gName);
                     let color=catColors[cat]||'var(--elite)';
-                    let salle=nbSalles>1?` · <span style="color:var(--text-muted);font-size:0.7rem;">${salleNames[matches[0]?.salleIdx??0]||''}</span>`:'';
+                    let salleIdxP2=matches[0]?.salleRef??matches[0]?.salleIdx??0; let salle=nbSalles>1?` · <span style="color:var(--text-muted);font-size:0.7rem;">${salleNames[salleIdxP2]||'Salle '+(salleIdxP2+1)}</span>`:'';
                     fullHtml+=`<div class="panel"><div class="panel-header"><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                         <span class="phase-badge" style="background:rgba(0,0,0,0.06);color:${color};border:1px solid ${color};">${catLabels[cat]}</span>
                         <b>${gName}</b>${salle}</span></div><div class="panel-body">`;
