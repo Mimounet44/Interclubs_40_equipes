@@ -386,24 +386,27 @@
                 t1.matchScores.push(s1); t2.matchScores.push(s2);
             });
             stats.forEach(s=>{ s.diff=s.bp-s.bc; });
-            // Critères de classement : 1.pts 2.victoires (prioritaire sur nuls) 3.diff 4.bp 5.confrontation directe 6.meilleur score 1er match 7.meilleur score 2 premiers matchs
-            stats.sort((a,b)=>{
+            // Tri stable multi-critères P1 — toutes les paires comparées strictement
+            // 1.pts 2.victoires 3.diff 4.bp 5.confrontation directe 6.score 1er match 7.score 2 premiers matchs
+            function cmpP1(a,b){
                 if(b.pts!==a.pts) return b.pts-a.pts;
-                // À égalité de points : victoires prioritaires sur nuls
                 if(b.w!==a.w) return b.w-a.w;
                 if(b.diff!==a.diff) return b.diff-a.diff;
                 if(b.bp!==a.bp) return b.bp-a.bp;
-                // confrontation directe
                 let direct=getDirectConfrontation(a.team,b.team,groupName);
                 if(direct!==0) return direct;
-                // meilleur score 1er match
                 let a1=a.matchScores[0]??-1, b1=b.matchScores[0]??-1;
                 if(b1!==a1) return b1-a1;
-                // meilleur score 2 premiers matchs
                 let a2=(a.matchScores[0]??0)+(a.matchScores[1]??0);
                 let b2=(b.matchScores[0]??0)+(b.matchScores[1]??0);
                 return b2-a2;
-            });
+            }
+            // Tri stable : insertion sort pour garantir la cohérence des égalités à 3+ équipes
+            for(let i=1;i<stats.length;i++){
+                let cur=stats[i], j=i-1;
+                while(j>=0 && cmpP1(stats[j],cur)>0){ stats[j+1]=stats[j]; j--; }
+                stats[j+1]=cur;
+            }
             return stats;
         }
 
@@ -589,22 +592,48 @@
             return groups.map((grp,idx)=>({name:`${categoryPrefix} ${idx+1}`,teams:grp.map(t=>t.team),category:categoryPrefix==='Élite'?'elite':'consol'}));
         }
 
+        // Ordre prioritaire des groupes P2 : Élite1, Élite2, Or1, Or2, Argent1 → Salle A
+        // Argent2, Bronze1, Bronze2, Consol1, Consol2 → Salle B (si 2 salles)
+        // La répartition se fait par ordre d'index de groupe dans allP2Groups/groupsP2E.
+        // On remplit la Salle A jusqu'à épuisement de sa capacité, puis Salle B.
+        function assignSallesParNiveau(allGroups){
+            // allGroups est ordonné par niveau : élite, or, argent, bronze, consol
+            // On calcule le nb de terrains par salle pour savoir combien de groupes tiennent
+            if(nbSalles<=1) return allGroups.map(()=>0);
+            let nbTerrainsSalleA=getTerrainsForSalle(0).length;
+            // Chaque groupe occupe 1 "slot" de terrain (ses matchs tournent sur tous les terrains)
+            // On répartit les groupes dans la salle A tant qu'il y a de la place,
+            // puis on déborde en salle B — Argent2 sera le premier à basculer si ça déborde.
+            // Règle : les 5 premiers groupes en Salle A, les 5 suivants en Salle B (format E à 10 groupes)
+            // Plus généralement : moitié haute → salle 0, moitié basse → salle 1
+            let half=Math.ceil(allGroups.length/2);
+            return allGroups.map((_,i)=> i<half ? 0 : 1);
+        }
+
         function genMatchesFromGroups(allP2Groups){
             matchesP2=[];
-            let nextId=1, total=getTotalTerrains();
+            let nextId=1;
+            // Répartition salle : élite+or+argent1 → salle A, argent2+bronze+consol → salle B
+            let salleMap=assignSallesParNiveau(allP2Groups);
+            let terrainCursors={};
             for(let idx=0;idx<allP2Groups.length;idx++){
                 let grp=allP2Groups[idx];
-                // Attribution salle : chaque groupe dans une salle, tous ses matchs dans la même salle
-                let salleIdx=nbSalles>1 ? (idx%nbSalles) : 0;
+                let salleIdx=salleMap[idx];
                 let terrainsS=getTerrainsForSalle(salleIdx);
-                let baseTerrain=terrainsS[0];
+                if(terrainCursors[salleIdx]==null) terrainCursors[salleIdx]=0;
                 let n=grp.teams.length, indices=[...Array(n).keys()];
                 if(n%2===1) indices.push(-1);
                 let rounds=indices.length-1;
                 for(let round=0;round<rounds;round++){
                     for(let i=0;i<indices.length/2;i++){
                         let a=indices[i], b=indices[indices.length-1-i];
-                        if(a!==-1&&b!==-1) matchesP2.push({id:nextId++,category:grp.category,groupName:grp.name,team1:grp.teams[a],team2:grp.teams[b],score1:'',score2:'',terrain:baseTerrain,salleIdx});
+                        if(a!==-1&&b!==-1){
+                            let terrain=terrainsS[terrainCursors[salleIdx]%terrainsS.length];
+                            terrainCursors[salleIdx]++;
+                            matchesP2.push({id:nextId++,category:grp.category,groupName:grp.name,
+                                team1:grp.teams[a],team2:grp.teams[b],score1:'',score2:'',
+                                terrain,salleRef:salleIdx});
+                        }
                     }
                     indices.splice(1,0,indices.pop());
                 }
@@ -699,21 +728,30 @@
         function genMatchesFromGroupsE(){
             matchesP2=[];
             let nextId=1;
+            // Format E : 10 groupes dans l'ordre élite1,élite2,or1,or2,argent1,argent2,bronze1,bronze2,consol1,consol2
+            // Salle A : élite1,élite2,or1,or2,argent1 (indices 0-4)
+            // Salle B : argent2,bronze1,bronze2,consol1,consol2 (indices 5-9)
+            let salleMap=assignSallesParNiveau(groupsP2E);
+            let terrainCursors={};
             for(let idx=0;idx<groupsP2E.length;idx++){
                 let grp=groupsP2E[idx];
                 if(!grp.teams.length) continue;
-                // Attribution salle : paires de poules dans la même salle
-                let pairIdx=Math.floor(idx/2); // 0=ELITE, 1=OR, 2=ARGENT, 3=BRONZE, 4=CONSOL
-                let salleIdx=nbSalles>1?(pairIdx%nbSalles):0;
+                let salleIdx=salleMap[idx];
                 let terrainsS=getTerrainsForSalle(salleIdx);
-                let baseTerrain=terrainsS[Math.min(idx%2,terrainsS.length-1)];
+                if(terrainCursors[salleIdx]==null) terrainCursors[salleIdx]=0;
                 let n=grp.teams.length, indices=[...Array(n).keys()];
                 if(n%2===1) indices.push(-1);
                 let rounds=indices.length-1;
                 for(let round=0;round<rounds;round++){
                     for(let i=0;i<indices.length/2;i++){
                         let a=indices[i], b=indices[indices.length-1-i];
-                        if(a!==-1&&b!==-1) matchesP2.push({id:nextId++,category:grp.category,groupName:grp.name,team1:grp.teams[a],team2:grp.teams[b],score1:'',score2:'',terrain:baseTerrain,salleIdx,isFormatE:true});
+                        if(a!==-1&&b!==-1){
+                            let terrain=terrainsS[terrainCursors[salleIdx]%terrainsS.length];
+                            terrainCursors[salleIdx]++;
+                            matchesP2.push({id:nextId++,category:grp.category,groupName:grp.name,
+                                team1:grp.teams[a],team2:grp.teams[b],score1:'',score2:'',
+                                terrain,salleRef:salleIdx,isFormatE:true});
+                        }
                     }
                     indices.splice(1,0,indices.pop());
                 }
@@ -735,10 +773,9 @@
                 t1.matchScores.push(s1);t2.matchScores.push(s2);
             });
             stats.forEach(s=>s.diff=s.bp-s.bc);
-            // Critères : 1.pts 2.victoires (prioritaire sur nuls) 3.diff 4.bp 5.confrontation directe 6.meilleur score 1er match 7.meilleur score 2 premiers matchs
-            stats.sort((a,b)=>{
+            // Tri stable multi-critères P2
+            function cmpP2(a,b){
                 if(b.pts!==a.pts) return b.pts-a.pts;
-                // À égalité de points : victoires prioritaires sur nuls
                 if(b.w!==a.w) return b.w-a.w;
                 if(b.diff!==a.diff) return b.diff-a.diff;
                 if(b.bp!==a.bp) return b.bp-a.bp;
@@ -749,7 +786,12 @@
                 let a2=(a.matchScores[0]??0)+(a.matchScores[1]??0);
                 let b2=(b.matchScores[0]??0)+(b.matchScores[1]??0);
                 return b2-a2;
-            });
+            }
+            for(let i=1;i<stats.length;i++){
+                let cur=stats[i], j=i-1;
+                while(j>=0 && cmpP2(stats[j],cur)>0){ stats[j+1]=stats[j]; j--; }
+                stats[j+1]=cur;
+            }
             return stats;
         }
 
@@ -1854,10 +1896,13 @@ window._smNav=function(idx){ _smSectionIdx=idx; renderScoreModal(); };
                 '<span>🤝 Match nul : <b>2 pts</b></span>'+
                 '<span>❌ Défaite : <b>0 pt</b></span></div>');
 
+            let salleRuleText = nbSalles>=2
+                ? 'Répartition Phase 2 par niveau : <b>Salle A</b> : Élite 1&2, Or 1&2, Argent 1 · <b>Salle B</b> : Argent 2, Bronze 1&2, Consol 1&2<br>Si Argent ne tient pas entièrement en Salle A, Argent 2 bascule en Salle B.'
+                : 'Tous les niveaux dans la même salle.';
             let b3 = ruleBlock('🎾','Organisation des salles',
                 salleInfo+'<br><span style="font-size:0.72rem;color:var(--text-muted);">'+
-                'Chaque groupe joue <b>exclusivement dans sa salle</b> pour toute la durée de la phase, '+
-                'en utilisant tous les terrains disponibles de cette salle.</span>');
+                'Chaque groupe joue <b>exclusivement dans sa salle</b>, en utilisant tous les terrains disponibles.<br>'+
+                salleRuleText+'</span>');
 
             let b4 = ruleBlock('🎯','Tirage au sort (Phase 1)',
                 'Le tirage est effectué aléatoirement avec <b>300 tentatives</b> pour minimiser '+
