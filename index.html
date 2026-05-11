@@ -626,15 +626,16 @@
         // La répartition se fait par ordre d'index de groupe dans allP2Groups/groupsP2E.
         // On remplit la Salle A jusqu'à épuisement de sa capacité, puis Salle B.
         function assignSallesParNiveau(allGroups){
-            // Répartition explicite par catégorie et ordre de niveau
-            // Catégories dans l'ordre : elite, elite, or, or, argent, argent, bronze, bronze, consol, consol
-            // Salle A : elite + or + argent1 (les 5 premiers)
-            // Salle B : argent2 + bronze + consol (les 5 derniers)
-            if(nbSalles<=1) return allGroups.map(()=>0);
-            // On parcourt les groupes dans l'ordre et on remplit salle A en priorité
-            // jusqu'à la moitié, puis salle B
+            // Répartition par niveau : élite+or+argent1 → salle 0, argent2+bronze+consol → salle 1
+            // Fonctionne avec 1 ou 2 salles configurées
+            let nbSallesEff=Math.max(nbSalles,1);
+            if(nbSallesEff<=1){
+                // 1 salle : on garde quand même la logique de terrain par groupe
+                // (tous en salle 0, les terrains tournent)
+                return allGroups.map(()=>0);
+            }
+            // 2+ salles : moitié haute → salle 0, moitié basse → salle 1
             let splitAt=Math.floor(allGroups.length/2);
-            // Si nombre impair, salle A a un groupe de plus
             return allGroups.map((_,i)=> i<splitAt ? 0 : 1);
         }
 
@@ -892,7 +893,11 @@
                 catGroups.forEach(([gName,matches])=>{
                     let rankStats=computePhase2Rank(gName);
                     let color=catColors[cat]||'var(--elite)';
-                    let salleIdxP2=matches[0]?.salleRef??matches[0]?.salleIdx??0; let salle=nbSalles>1?` · <span style="color:var(--text-muted);font-size:0.7rem;">${salleNames[salleIdxP2]||'Salle '+(salleIdxP2+1)}</span>`:'';
+                    // Salle du groupe : dériver du terrain du 1er match si possible
+                    let firstMatch=matches[0];
+                    let salleIdxP2=firstMatch?.salleRef??firstMatch?.salleIdx??0;
+                    if(nbSalles>1 && firstMatch?.terrain) salleIdxP2=getSalleForTerrain(firstMatch.terrain);
+                    let salle=nbSalles>1?` · <span style="color:var(--text-muted);font-size:0.7rem;">${salleNames[salleIdxP2]||'Salle '+(salleIdxP2+1)}</span>`:'';
                     fullHtml+=`<div class="panel"><div class="panel-header"><span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                         <span class="phase-badge" style="background:rgba(0,0,0,0.06);color:${color};border:1px solid ${color};">${catLabels[cat]}</span>
                         <b>${gName}</b>${salle}</span></div><div class="panel-body">`;
