@@ -540,12 +540,18 @@
             if(!groupsP1.length||!matchesP1.length){ area.innerHTML='<div class="panel"><div class="panel-body" style="color:var(--text-muted);">Générez la Phase 1 d\'abord.</div></div>'; return; }
             let all=[];
             for(let grp of groupsP1){ let rank=computeRankP1(grp.name); rank.forEach(r=>{ all.push({team:r.team,pts:r.pts,diff:r.diff,bp:r.bp,wins:r.w,draws:r.d,losses:r.l}); }); }
-            all.sort((a,b)=>b.pts-a.pts||b.wins-a.wins||b.diff-a.diff||b.bp-a.bp);
+            // Tri stable par insertion avec cmpGeneralP1
+            for(let i=1;i<all.length;i++){
+                let cur=all[i], j=i-1;
+                while(j>=0 && cmpGeneralP1(all[j],cur)>0){ all[j+1]=all[j]; j--; }
+                all[j+1]=cur;
+            }
             let html=`<div class="panel"><div class="panel-header">📊 Classement général Phase 1</div><div class="panel-body">
-            <table class="ranking-table"><thead><tr><th>Rang</th><th>Club</th><th>Joueurs</th><th>Pts</th><th>Diff</th><th>BP</th><th>V/N/D</th></tr></thead><tbody>`;
+            <table class="ranking-table"><thead><tr><th>Rang</th><th>Club</th><th>Joueurs</th><th>Gpe</th><th>Pts</th><th>Diff</th><th>BP</th><th>V/N/D</th></tr></thead><tbody>`;
             all.forEach((r,idx)=>{
                 let medals=['🥇','🥈','🥉'];
-                html+=`<tr class="rank-${idx+1}"><td class="rank-num">${medals[idx]||idx+1}</td><td><b>${esc(r.team.club)}</b></td><td style="font-size:0.62rem;color:var(--text-muted)">${esc(r.team.player1)}<br>${esc(r.team.player2)}</td><td><b>${r.pts}</b></td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${r.diff>0?'+':''}${r.diff}</td><td>${r.bp}</td><td style="color:var(--text-muted)">${r.wins}/${r.draws}/${r.losses}</td></tr>`;
+                let posLabel=['🥇','🥈','🥉','4️⃣','5️⃣'][r.posInGroup-1]||r.posInGroup+'e';
+                html+=`<tr class="rank-${idx+1}"><td class="rank-num">${medals[idx]||idx+1}</td><td><b>${esc(r.team.club)}</b></td><td style="font-size:0.62rem;color:var(--text-muted)">${esc(r.team.player1)}<br>${esc(r.team.player2)}</td><td style="font-size:0.68rem;color:var(--accent);white-space:nowrap;">${posLabel} <span style="color:var(--text-muted);font-size:0.6rem;">${esc(r.groupOrigin)}</span></td><td><b>${r.pts}</b></td><td style="${r.diff>0?'color:var(--accent)':r.diff<0?'color:var(--danger)':''}">${r.diff>0?'+':''}${r.diff}</td><td>${r.bp}</td><td style="color:var(--text-muted)">${r.wins}/${r.draws||0}/${r.losses||0}</td></tr>`;
             });
             html+=`</tbody></table></div></div>`;
             area.innerHTML=html;
@@ -553,8 +559,30 @@
 
         function getAllTeamsRankedP1(){
             let all=[];
-            for(let grp of groupsP1){ let rank=computeRankP1(grp.name); rank.forEach((r,idx)=>{ all.push({team:r.team,groupOrigin:grp.name,posInGroup:idx+1,pts:r.pts,diff:r.diff,bp:r.bp,wins:r.w}); }); }
+            for(let grp of groupsP1){
+                let rank=computeRankP1(grp.name);
+                rank.forEach((r,idx)=>{ all.push({
+                    team:r.team, groupOrigin:grp.name, posInGroup:idx+1,
+                    pts:r.pts, diff:r.diff, bp:r.bp, wins:r.w, draws:r.d, losses:r.l,
+                    matchScores:r.matchScores
+                }); });
+            }
             return all;
+        }
+
+        // Comparateur stable pour le classement général P1 :
+        // 1.place dans groupe  2.pts  3.diff  4.bp  5.victoires  6.score 1er match  7.score 2 premiers matchs
+        function cmpGeneralP1(a,b){
+            if(a.posInGroup!==b.posInGroup) return a.posInGroup-b.posInGroup;
+            if(b.pts!==a.pts) return b.pts-a.pts;
+            if(b.diff!==a.diff) return b.diff-a.diff;
+            if(b.bp!==a.bp) return b.bp-a.bp;
+            if(b.wins!==a.wins) return b.wins-a.wins;
+            let a1=a.matchScores?.[0]??-1, b1=b.matchScores?.[0]??-1;
+            if(b1!==a1) return b1-a1;
+            let a2=(a.matchScores?.[0]??0)+(a.matchScores?.[1]??0);
+            let b2=(b.matchScores?.[0]??0)+(b.matchScores?.[1]??0);
+            return b2-a2;
         }
 
         // ============ GÉNÉRATION PHASE 2 (formats A,B,C,D) ============
@@ -598,17 +626,14 @@
         // La répartition se fait par ordre d'index de groupe dans allP2Groups/groupsP2E.
         // On remplit la Salle A jusqu'à épuisement de sa capacité, puis Salle B.
         function assignSallesParNiveau(allGroups){
-            // allGroups est ordonné par niveau : élite, or, argent, bronze, consol
-            // On calcule le nb de terrains par salle pour savoir combien de groupes tiennent
+            // allGroups ordonné par niveau : élite1,élite2,or1,or2,argent1,argent2,bronze1,bronze2,consol1,consol2
+            // Salle A : première moitié (élite+or+argent1)
+            // Salle B : deuxième moitié (argent2+bronze+consol)
+            // Math.floor → avec 10 groupes : 5 en A (idx 0-4), 5 en B (idx 5-9)
+            //              avec 8 groupes  : 4 en A (idx 0-3), 4 en B (idx 4-7)
             if(nbSalles<=1) return allGroups.map(()=>0);
-            let nbTerrainsSalleA=getTerrainsForSalle(0).length;
-            // Chaque groupe occupe 1 "slot" de terrain (ses matchs tournent sur tous les terrains)
-            // On répartit les groupes dans la salle A tant qu'il y a de la place,
-            // puis on déborde en salle B — Argent2 sera le premier à basculer si ça déborde.
-            // Règle : les 5 premiers groupes en Salle A, les 5 suivants en Salle B (format E à 10 groupes)
-            // Plus généralement : moitié haute → salle 0, moitié basse → salle 1
-            let half=Math.ceil(allGroups.length/2);
-            return allGroups.map((_,i)=> i<half ? 0 : 1);
+            let splitAt=Math.floor(allGroups.length/2);
+            return allGroups.map((_,i)=> i<splitAt ? 0 : 1);
         }
 
         function genMatchesFromGroups(allP2Groups){
@@ -646,14 +671,15 @@
             if(currentFormat==="E"){ genPhase2FormatE(); return; }
             if(!groupsP1.length||!matchesP1.length){ showMsg("Générez Phase 1 d'abord"); return; }
             let all=getAllTeamsRankedP1();
+            // Trier par cmpGeneralP1 avant de filtrer par position
+            for(let i=1;i<all.length;i++){ let cur=all[i],j=i-1; while(j>=0&&cmpGeneralP1(all[j],cur)>0){all[j+1]=all[j];j--;} all[j+1]=cur; }
             let firsts=all.filter(t=>t.posInGroup===1), seconds=all.filter(t=>t.posInGroup===2);
-            let thirds=all.filter(t=>t.posInGroup===3).sort((a,b)=>(b.pts-a.pts)||(b.wins-a.wins)||(b.diff-a.diff)||(b.bp-a.bp));
+            let thirds=all.filter(t=>t.posInGroup===3);
             let fourths=all.filter(t=>t.posInGroup===4), fifths=all.filter(t=>t.posInGroup===5);
 
             function buildAndGenerate(eliteQ,consolQ,eliteSize,eliteNb,consolSize,consolNb,msgLabel){
                 if(eliteQ.length!==eliteSize*eliteNb||consolQ.length!==consolSize*consolNb){ showMsg(`Erreur sélection P2 ${msgLabel}`); return false; }
-                eliteQ.sort((a,b)=>(b.pts-a.pts)||(b.wins-a.wins)||(b.diff-a.diff)||(b.bp-a.bp));
-                consolQ.sort((a,b)=>(b.pts-a.pts)||(b.wins-a.wins)||(b.diff-a.diff)||(b.bp-a.bp));
+                // Déjà triés par cmpGeneralP1 — on garde l'ordre
                 let eliteGroups=buildSnakeGroups(eliteQ,eliteSize,eliteNb,"Élite");
                 let consolGroups=buildSnakeGroups(consolQ,consolSize,consolNb,"Consolation");
                 genMatchesFromGroups([...eliteGroups,...consolGroups]);
@@ -689,7 +715,7 @@
             if(!groupsP1.length||!matchesP1.length){ showMsg("Générez Phase 1 d'abord"); return; }
             // Classement général P1
             let all=getAllTeamsRankedP1();
-            all.sort((a,b)=>b.pts-a.pts||b.wins-a.wins||b.diff-a.diff||b.bp-a.bp);
+            for(let i=1;i<all.length;i++){ let cur=all[i],j=i-1; while(j>=0&&cmpGeneralP1(all[j],cur)>0){all[j+1]=all[j];j--;} all[j+1]=cur; }
 
             // Construire les groupes selon les rangs définis
             groupsP2E=FORMAT_E_RANKS.map((ranks,poolIdx)=>({
