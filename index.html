@@ -390,8 +390,8 @@
             // Tri stable multi-critères P1 — toutes les paires comparées strictement
             // 1.pts 2.victoires 3.diff 4.bp 5.confrontation directe 6.score 1er match 7.score 2 premiers matchs
             function cmpP1(a,b){
-                if(b.pts!==a.pts) return b.pts-a.pts;
                 if(b.w!==a.w) return b.w-a.w;
+                if(b.pts!==a.pts) return b.pts-a.pts;
                 if(b.diff!==a.diff) return b.diff-a.diff;
                 if(b.bp!==a.bp) return b.bp-a.bp;
                 let direct=getDirectConfrontation(a.team,b.team,groupName);
