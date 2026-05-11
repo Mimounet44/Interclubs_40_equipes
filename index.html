@@ -574,10 +574,10 @@
         // 1.place dans groupe  2.pts  3.diff  4.bp  5.victoires  6.score 1er match  7.score 2 premiers matchs
         function cmpGeneralP1(a,b){
             if(a.posInGroup!==b.posInGroup) return a.posInGroup-b.posInGroup;
+            if(b.wins!==a.wins) return b.wins-a.wins;
             if(b.pts!==a.pts) return b.pts-a.pts;
             if(b.diff!==a.diff) return b.diff-a.diff;
             if(b.bp!==a.bp) return b.bp-a.bp;
-            if(b.wins!==a.wins) return b.wins-a.wins;
             let a1=a.matchScores?.[0]??-1, b1=b.matchScores?.[0]??-1;
             if(b1!==a1) return b1-a1;
             let a2=(a.matchScores?.[0]??0)+(a.matchScores?.[1]??0);
